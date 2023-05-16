@@ -246,7 +246,7 @@ def apply_alpha(A, V):
     return torch.matmul(A, V)
 
 
-class AttentionAgent(nn.Module):
+class Agent(nn.Module):
     def __init__(
         self,
         num_actions,
@@ -259,7 +259,7 @@ class AttentionAgent(nn.Module):
     ):
         """Agent implementing the attention agent.
         """
-        super(AttentionAgent, self).__init__()
+        super(Agent, self).__init__()
         self.hidden_size = hidden_size
         self.c_v, self.c_k, self.c_s, self.num_queries = c_v, c_k, c_s, num_queries
 

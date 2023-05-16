@@ -1,4 +1,5 @@
 # Implementation of attention agent from Mott, 2019
+# Modified from https://github.com/cjlovering/Towards-Interpretable-Reinforcement-Learning-Using-Attention-Augmented-Agents-Replication/blob/master/attention.py
 import time
 import torch 
 import torch.nn as nn
@@ -6,179 +7,140 @@ import numpy as np
 import pickle
 
 
+from models.attention import SpatialBasis, spatial_softmax, apply_alpha
+import utils.pytorch_util as ptu
 
-class VisionCore(nn.Module):
-    def __init__(self, args):
-        self.ConvNet = nn.Sequential(
-                nn.Conv2d(in_channels=3, out_channels=32, kernel_size=8, stride=4),
-                nn.Conv2d(in_channels=32, out_channels=64, kernel_size=4, stride=2),
+
+class AttentionAgents(nn.Module):
+    """
+    Implement multiple context c-conditioned attention agents as n-headed self attention
+    with each k = n/|c| heads corresponding to an agent.
+
+    Takes as state the output of the vision core, maintained separately
+    """
+    def __init__(self, agent_params):
+        super(AttentionAgents, self).__init__()
+        self.agent_params = agent_params
+
+        self.num_actions = agent_params['num_actions']
+        self.num_policy_heads = agent_params['num_policy_heads']
+        self.hidden_size = agent_params['lstm_hidden_size']
+        
+        self.c_k = agent_params['c_k']
+        self.c_v = agent_params['c_v']
+        self.c_s = agent_params['c_s']
+
+        self.h = agent_params['vision_h']
+        self.w = agent_params['vision_w']
+        self.ch = agent_params['vision_ch']
+
+        self.num_agents = agent_params['num_agents']
+        self.num_queries_per_agent = agent_params['num_queries_per_agent']
+        self.num_queries = self.num_agents * self.num_queries_per_agent
+
+        self.spatial = SpatialBasis(self.h, self.w, self.ch)
+
+        self.answer_mlp = ptu.build_mlp(
+            # queries + answers + action + reward
+            self.num_queries_per_agent * (self.c_k + 2 * self.c_s + self.c_v) + 2,
+            self.hidden_size,
+            agent_params['a_mlp_n_layers'],
+            agent_params['a_mlp_size'],              # hidden size
+            'relu',                                  # hidden activations
+            'identity',                              # output activations
         )
-        pass
 
-    def forward(self, x):
-        pass
+        self.policy_core = nn.LSTMCell(self.hidden_size, self.hidden_size)
+        self.prev_hidden = None
+        self.prev_cell   = None
 
+        self.q_mlp = ptu.build_mlp(
+            self.hidden_size,                        # input from LSTM
+            self.num_queries * (self.c_k + self.c_s) # N * (c_k + c_s) to be reshaped
+            agent_params['q_mlp_n_layers'],
+            agent_params['q_mlp_size'],              # hidden size
+            'relu',                                  # hidden activations
+            'identity',                              # output activations
+        )
 
+        self.policy_heads = []
+        for _ in range(self.num_policy_heads):
+            self.policy_heads.append(
+                ptu.build_mlp(
+                    self.hidden_size, self.num_actions, 0, 0,
+                    'relu', agent_params['policy_act']))
+        self.values_head = nn.Linear(self.hidden_size, self.num_actions, 0, 0, 'relu',
+                agent_params['values_act'])
 
+    def act(self, obs, r_prev=None, a_prev=None):
+        """ Should return a torch.distribution representing a policy"""
+        raise NotImplementedError
 
+    def reset(self):
+        self.prev_hidden = None
+        self.prev_cell   = None
 
-class LearnedPWNet(nn.Module):
-    """ Modified from PW-Net code """
+    def forward(self, x, c, r_prev=None, a_prev=None):
+        # Setup
+        n = x.shape[0]
+        
+        if r_prev is None:
+            r_prev = torch.zeros(n, 1, 1)     # (n, 1, 1)
+        else:
+            r_prev = torch.tensor(r_prev).reshape(n, 1, 1)  # (n, 1, 1)
+        if a_prev is None:
+            a_prev = torch.zeros(n, 1, 1)     # (n, 1, 1)
+        else:
+            a_prev = torch.tensor(a_prev).reshape(n, 1, 1)  # (n, 1, 1)
 
-    def __init__(self, args):
-        super(LearnedPWNet, self).__init__()
-        self.ts = ListModule(self, 'ts_')
-        self.num_classes = args['num_classes']
-        self.num_prototypes = args['num_prototypes']
-        self.latent_size = args['latent_size']
-        self.prototype_size = args['prototype_size']
-        self.lambda1 = args['lambda1']
-        self.lambda3 = args['lambda3']
-        self.group_sparsity = args['group_sparsity']
-        self.device = args['device']
-        self.env = args['env']
+        # Spatial
+        # (n, h, w, c_k), (n, h, w, c_v)
+        K, V = x.split([self.c_k, self.c_v], dim=3)
+        # (n, h, w, c_k + c_s), (n, h, w, c_v + c_s)
+        K, V = self.spatial(K), self.spatial(V)
 
-        self.prototype_idxs = [None] * self.num_prototypes
-        self.prototype_dists = [None] * self.num_prototypes
-
-        for i in range(self.num_prototypes):
-            transformation = nn.Sequential(
-                nn.Linear(self.latent_size, self.prototype_size),
-                nn.InstanceNorm1d(self.prototype_size),
-                nn.ReLU(),
-                nn.Linear(self.prototype_size, self.prototype_size),
+        # Queries
+        if self.prev_hidden is None:
+            self.prev_hidden = torch.zeros(
+                n, self.hidden_size, requires_grad=True
             )
-            self.ts.append(transformation)  
 
-        self.latent_protos = nn.Parameter(
-            torch.randn((self.num_prototypes, self.prototype_size), dtype=torch.float32),
-            requires_grad=True
-        )
-        self.aligned_prototypes = []
-         
-        self.epsilon = 1e-5
-        # self.linear = nn.Linear(self.num_prototypes, self.num_classes, bias=False) 
-        self.linear = L0Dense(self.num_prototypes, self.num_classes, bias=False, weight_decay=self.lambda3, lamba=self.lambda1, group_sparsity=self.group_sparsity)
-        self.tanh = nn.Tanh()
-        self.relu = nn.ReLU() 
-        
-    # not used for now
-    def __make_linear_weights(self):
-        """
-        Must be manually defined to connect prototypes to human-friendly concepts
-        For example, -1 here corresponds to steering left, whilst the 1 below it to steering right
-        Together, they can encapsulate the overall concept of steering
-        More could be connected, but we just use 2 here for simplicity.
-        """
+        Q = self.q_mlp(self.prev_hidden)  # (n, h, w, num_q * (c_k + c_s))
+        Q = Q.reshape(n, self.h, self.w, self.num_queries, self.c_k + self.c_s)  # (n, h, w, num_queries, c_k + c_s)
+        Q = Q.chunk(self.num_agents, dim=3)[c]  # (n, h, w, num_queries_per_agent, c_k + c_s)
 
-        custom_weight_matrix = torch.tensor([
-                                             [-1., 0., 0.], 
-                                             [ 1., 0., 0.],
-                                             [ 0., 1., 0.], 
-                                             [ 0., 0., 1.],
-        ])
-        self.linear.weight.data.copy_(custom_weight_matrix.T)   
-        
-    def __proto_layer_l2(self, x, p):
-        b_size = x.shape[0]
-        p = p.view(1, self.prototype_size).tile(b_size, 1).to(self.device) 
-        c = x.view(b_size, self.prototype_size).to(self.device)      
-        l2s = ( (c - p)**2 ).sum(axis=1).to(self.device) 
-        act = torch.log( (l2s + 1. ) / (l2s + self.epsilon) ).to(self.device)  
-        return act
-    
-    def __output_act_func(self, p_acts):    
-        """
-        Use appropriate activation functions for the problem at hand
-        Here, tanh and relu make the most sense as they bin the possible output
-        ranges to be what the car is capable of doing.
-        """
+        # Answer
+        A = torch.matmul(K, Q.transpose(2, 1).unsqueeze(1))  # (n, h, w, num_queries_per_agent)
+        # (n, h, w, num_queries_per_agent)
+        A = spatial_softmax(A)
+        # (n, 1, 1, num_queries_per_agent)
+        a = apply_alpha(A, V)
 
-        p_acts.T[0] = self.tanh(p_acts.T[0])  # steering between -1 -> +1
-        p_acts.T[1] = self.relu(p_acts.T[1])  # acc > 0
-        p_acts.T[2] = self.relu(p_acts.T[2])  # brake > 0
-        return p_acts
+        # (n, (c_v + c_s) * num_queries_per_agent + (c_k + c_s) * num_queries_per_agent + 1 + 1)
+        answer = torch.cat(
+            torch.chunk(a, 4, dim=1)
+            + torch.chunk(Q, 4, dim=1)
+            + (r_prev.float(), a_prev.float()),
+            dim=2,
+        ).squeeze(1)
+        # (n, hidden_size)
+        answer = self.answer_mlp(answer)
 
+        # Policy
+        if self.prev_cell is None:
+            h, c = self.policy_core(answer)
+        else:
+            h, c = self.policy_core(answer, (self.prev_hidden, self.prev_cell))
+            self.prev_hidden, self.prev_cell = h, c
+        # (n, hidden_size)
+        output = h
 
-    def transform(self, x, idx):
-        """
-        Transform from black box latent space to prototype[idx] space
-        """
-        return self.ts[idx](x) 
-    
+        # Outputs
+        # (n, num_actions)
+        logits = []
+        for policy_head in self.policy_heads:
+            logits.append(policy_head(output))
+        # (n, num_actions)
+        values = self.values_head(output)
+        return logits, values
 
-    def extract_prototypes(self, X_train):
-        print("Starting prototype extraction...")
-        start = time.time()
-
-        trans_x = list()
-        for i in tqdm(range(len(X_train))):
-            img = X_train[i]
-            trans_img = list()
-            for j, t in enumerate(self.ts):
-                with torch.no_grad():
-                    x = self.transform(torch.tensor(img, dtype=torch.float32).view(1, -1).to(self.device), j)
-                trans_img.append(x[0].tolist())
-            trans_x.append(trans_img)
-        trans_x = np.array(trans_x)
-
-        nn_xs = []
-        dists = []
-        for i in range(self.num_prototypes):
-            trained_prototype = self.latent_protos.clone().detach()[i].view(1,-1).cpu().numpy()
-            knn = KNeighborsRegressor(algorithm='brute')
-            knn.fit(trans_x[:, i, :], list(range(len(trans_x))))
-            dist, nn_idx = knn.kneighbors(X=trained_prototype, n_neighbors=1, return_distance=True)
-            # print(dist.item(), nn_idx.item())
-            nn_xs.append(nn_idx.item())
-            dists.append(dist.item())
-        print(f"Prototypes extracted in {time.time() - start} seconds")
-
-        self.prototype_idxs = nn_xs
-        self.prototype_dists = dists
-        return nn_xs
-
-
-    def plot_prototypes(self, X_train, states):
-        prototype_idxs = self.extract_prototypes(X_train)
-        ncols = 4
-        nrows = 1 + (self.num_prototypes - 1) // ncols
-        fig = plt.figure(figsize=(6, 3))
-        for i, idx in enumerate(prototype_idxs):
-            ax = fig.add_subplot(nrows, ncols, i+1)
-            ax.imshow(states[idx])
-            ax.set_title(f"Prototype {i+1} (D: {self.prototype_dists[i]:.2f})",
-                    fontdict={'fontsize': 8})
-        return fig
-
-    def plot_weights(self):
-        t = self.linear.weights.data.clone().detach().T
-        ylabs = ['', 'steer', 'brake', 'accel']
-        xlabs = [''] + [f'p{i+1}' for i in range(self.num_prototypes)]
-
-        fig = plt.figure(figsize=(6, 6))
-        ax = fig.add_subplot(1, 1, 1)
-        ax.matshow(t.cpu().numpy(), cmap='PiYG', vmin=-t.abs().max(), vmax=t.abs().max())
-        for i in range(t.shape[0]):
-            for j in range(t.shape[1]):
-                ax.annotate(f'{t[i, j].item():.4f}', (j, i), ha="center", va="center")
-
-        ax.set_yticklabels(ylabs)
-        ax.set_xticklabels(xlabs)
-
-        return fig
-
-    
-    def forward(self, x):
-        # Do similarity of inputs to prototypes
-        p_acts = list()
-        for i, t in enumerate(self.ts):
-            action_prototype = self.latent_protos[i]
-            p_acts.append( self.__proto_layer_l2( t(x), action_prototype).view(-1, 1) )
-        p_acts = torch.cat(p_acts, axis=1)
-
-        # Put though activation function method
-        logits = self.linear(p_acts)
-        final_outputs = self.__output_act_func(logits)   
-
-        return final_outputs
