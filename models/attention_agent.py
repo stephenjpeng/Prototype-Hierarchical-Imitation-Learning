@@ -23,7 +23,6 @@ class AttentionAgents(nn.Module):
         self.agent_params = agent_params
 
         self.num_actions = agent_params['num_actions']
-        self.num_policy_heads = agent_params['num_policy_heads']
         self.hidden_size = agent_params['lstm_hidden_size']
         
         self.c_k = agent_params['c_k']
@@ -38,7 +37,7 @@ class AttentionAgents(nn.Module):
         self.num_queries_per_agent = agent_params['num_queries_per_agent']
         self.num_queries = self.num_agents * self.num_queries_per_agent
 
-        self.spatial = SpatialBasis(self.h, self.w, self.ch)
+        self.spatial = SpatialBasis(self.h, self.w, self.c_s)
 
         self.answer_mlp = ptu.build_mlp(
             # queries + answers + action + reward
@@ -55,26 +54,18 @@ class AttentionAgents(nn.Module):
         self.prev_cell   = None
 
         self.q_mlp = ptu.build_mlp(
-            self.hidden_size,                        # input from LSTM
-            self.num_queries * (self.c_k + self.c_s) # N * (c_k + c_s) to be reshaped
+            self.hidden_size,                         # input from LSTM
+            self.num_queries * (self.c_k + self.c_s), # N * (c_k + c_s) to be reshaped
             agent_params['q_mlp_n_layers'],
-            agent_params['q_mlp_size'],              # hidden size
-            'relu',                                  # hidden activations
-            'identity',                              # output activations
+            agent_params['q_mlp_size'],               # hidden size
+            'relu',                                   # hidden activations
+            'identity',                               # output activations
         )
 
-        self.policy_heads = []
-        for _ in range(self.num_policy_heads):
-            self.policy_heads.append(
-                ptu.build_mlp(
-                    self.hidden_size, self.num_actions, 0, 0,
-                    'relu', agent_params['policy_act']))
-        self.values_head = nn.Linear(self.hidden_size, self.num_actions, 0, 0, 'relu',
+        self.policy_head = ptu.build_mlp(self.hidden_size, self.num_actions, 0, 0,
+                'relu', agent_params['policy_act'])
+        self.values_head = ptu.build_mlp(self.hidden_size, self.num_actions, 0, 0, 'relu',
                 agent_params['values_act'])
-
-    def act(self, obs, r_prev=None, a_prev=None):
-        """ Should return a torch.distribution representing a policy"""
-        raise NotImplementedError
 
     def reset(self):
         self.prev_hidden = None
@@ -87,11 +78,11 @@ class AttentionAgents(nn.Module):
         if r_prev is None:
             r_prev = torch.zeros(n, 1, 1)     # (n, 1, 1)
         else:
-            r_prev = torch.tensor(r_prev).reshape(n, 1, 1)  # (n, 1, 1)
+            r_prev = r_prev.reshape(n, 1, 1)  # (n, 1, 1)
         if a_prev is None:
             a_prev = torch.zeros(n, 1, 1)     # (n, 1, 1)
         else:
-            a_prev = torch.tensor(a_prev).reshape(n, 1, 1)  # (n, 1, 1)
+            a_prev = a_prev.reshape(n, 1, 1)  # (n, 1, 1)
 
         # Spatial
         # (n, h, w, c_k), (n, h, w, c_v)
@@ -137,9 +128,7 @@ class AttentionAgents(nn.Module):
 
         # Outputs
         # (n, num_actions)
-        logits = []
-        for policy_head in self.policy_heads:
-            logits.append(policy_head(output))
+        logits = self.policy_head(output)
         # (n, num_actions)
         values = self.values_head(output)
         return logits, values

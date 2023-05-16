@@ -1,13 +1,15 @@
+import numpy as np
+import pickle
 import time
 import torch
 
 from argparse import ArgumentParser
-from torch.utils.data import TensorDataset, random_split
+from torch.utils.data import TensorDataset, DataLoader, random_split
 from tqdm import tqdm
 
 from envs.segmentation_env import OfflineEnv, SegmentationEnv
 from models.attention import VisionNetwork
-from models.car_base_agent import CarBaseAgent
+from models.car_base_agent import CarBaseAgents
 from models.car_detector_agent import CarDetectorAgent
 
 
@@ -40,7 +42,7 @@ def parse_args(args=None):
     parser.add_argument('--tensorboard_suffix', type=str, default="")
     parser.add_argument('--log_every', type=int, default=500)
 
-    parser.add_argument('--no_shuffle', dest='shuffle', type='store_false', help="Don't shuffle offline data")
+    parser.add_argument('--no_shuffle', dest='shuffle', action='store_false', help="Don't shuffle offline data")
     parser.add_argument('--seed', type=int, default=123)
     args = parser.parse_args(args=args)
 
@@ -77,10 +79,6 @@ def val_iteration(detector, base_agent, vision_core, val_offline_env, args):
         detector.reset()
         done = False
 
-        detector_opt.zero_grad()
-        base_opt.zero_grad()
-        vision_opt.zero_grad()
-
         values = []
         log_probs = []
         rewards = []
@@ -88,7 +86,6 @@ def val_iteration(detector, base_agent, vision_core, val_offline_env, args):
 
         # run a trajectory
         while not done:
-            global_step += 1
             policy = detector.act(state, env.c, env.get_valid_actions())
             action = policy.mode()
             state, reward, done, info = env.step(action)
@@ -96,7 +93,7 @@ def val_iteration(detector, base_agent, vision_core, val_offline_env, args):
             log_probs.append(detector.log_prob(action))
             values.append(detector.value)
             rewards.append(reward)
-            base_rewards.append(env.base_agent_last_reward)
+            base_reward.append(env.base_agent_last_reward)
 
         # calculate loss
         base_rewards = torch.cat(base_rewards)
@@ -131,22 +128,30 @@ def train(args):
     with open(args['train_y_file'], 'rb') as f:
         real_actions = pickle.load(f)
 
-    X_train = np.array([item for sublist in X_train for item in sublist])
-    real_actions = np.array([item for sublist in real_actions for item in sublist])
-    tensor_x = torch.Tensor(X_train)
-    tensor_y = torch.tensor(real_actions, dtype=torch.float32)
+    # X_train = np.array([item for sublist in X_train for item in sublist])
+    # real_actions = np.array([item for sublist in real_actions for item in sublist])
+    # tensor_x = torch.Tensor(X_train)
+    # tensor_y = torch.tensor(real_actions, dtype=torch.float32)
 
-    dataset = TensorDataset(tensor_x, tensor_y)
-    generator = torch.Generator().manual_seed(args['seed'])
-    train_dataset, val_dataset = random_split(datset, [0.8, 0.2], generator)
+    # dataset = TensorDataset(tensor_x, tensor_y)
+    # generator = torch.Generator().manual_seed(args['seed'])
+    # train_dataset, val_dataset = random_split(dataset, [0.8, 0.2], generator)
+
+    # split data into test and train
+    dataset = list(zip(X_train, real_actions))
+    N = len(dataset)
+    rng = np.random.default_rng(env_params['seed'])
+    rng.shuffle(dataset)
+    train_dataset = dataset[:(4 * N // 5)]
+    val_dataset   = dataset[(4 * N // 5):]
 
     #### Training
-    model_name = f'{args["env"]}_' +
+    model_name = (f'{args["env"]}_' +
                  f'{args["max_regimes"]}regimes_' +
                  f'{args["n_layers"],["hidden_size"]}detector' +
-                 f'{args["tensorboard_suffix"]}_' +
+                 f'{args["tensorboard_suffix"]}_')
     # create models
-    base_agent = CarBaseAgent(args['max_regimes'], args={})
+    base_agent = CarBaseAgents(args['max_regimes'], args={})
     detector   = CarDetectorAgent(args)
     vision_core = VisionNetwork()
 
@@ -169,6 +174,7 @@ def train(args):
         from tensorboardX import SummaryWriter
         writer = SummaryWriter(f'runs/{model_name}{time.strftime("%Y%m%d-%H%M%S")}')
 
+    print("*** Starting Training... ***")
     global_step = 0
     for epoch in tqdm(range(args['num_epochs'])):
         for episode in tqdm(range(len(offline_env.N))):
@@ -183,7 +189,7 @@ def train(args):
             values = []
             log_probs = []
             rewards = []
-            base_reward = []
+            base_rewards = []
 
             # run a trajectory
             while not done:
@@ -228,6 +234,7 @@ def train(args):
                 writer.add_scalar('Train/DetectorReward', rewards.sum(), global_step)
                 writer.add_scalar('Train/CriticLoss', critic_loss, global_step)
                 writer.add_scalar('Train/ActorLoss', actor_loss, global_step)
+                writer.add_scalar('Train/LR', d_scheduler.get_last_lr(), global_step)
                 writer.add_video('Train/SampleTrajectory', sample_trajectory, global_step)
 
         # Validation

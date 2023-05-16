@@ -15,8 +15,10 @@ class OfflineEnv(gym.Env):
             env_params,   # parameters for our environment
             ):
         super(OfflineEnv, self).__init__()
+
+        # TODO: create dataloader for D
         self.D = D
-        self.shuffle =  env_params['shuffle']
+        self.shuffle = env_params['shuffle']
         self.rng = np.random.default_rng(env_params['seed'])
         if self.shuffle:
             self.rng.shuffle(self.D)
