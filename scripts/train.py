@@ -223,8 +223,6 @@ def train(args):
             log_probs = torch.tensor(log_probs, requires_grad=True).float().to(args['device'])
             values = torch.tensor(values, requires_grad=True).to(args['device'])
 
-            import pdb; pdb.set_trace()
-
             ## update base agent
             base_loss.backward()
             base_opt.step()
