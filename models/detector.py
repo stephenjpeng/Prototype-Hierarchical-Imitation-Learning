@@ -49,7 +49,7 @@ class DetectorAgent(nn.Module):
             h, c = self.lstm(x)  # n, h each
         else:
             h, c = self.lstm(x, (self.prev_hidden, self.prev_cell))
-            self.prev_hidden, self.prev_cell = h, c
+        self.prev_hidden, self.prev_cell = h, c
 
         output = self.mlp(torch.hstack([h, torch.tensor(context).to(self.device)]))  # n, a + 1
         value  = self.v_activation(output[:, 0])   # n, 1
