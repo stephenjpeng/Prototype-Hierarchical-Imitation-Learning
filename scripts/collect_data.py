@@ -70,7 +70,7 @@ for ep in tqdm(range(NUM_EPISODES)):
 		count += 1
 
 		# Run one step of the environment based on the current policy
-		value, alpha, beta, x = ppo.net(self_state)
+		value, alpha, beta, x = ppo.net(self_state.cpu())
 		value, alpha, beta = value.squeeze(0), alpha.squeeze(0), beta.squeeze(0)
 		policy = Beta(alpha, beta)
 
@@ -104,8 +104,8 @@ for ep in tqdm(range(NUM_EPISODES)):
 
 print("average reward per episode :", sum(reward_arr) / NUM_EPISODES)
 
-with open('data/X_train.pkl', 'wb') as f:
-	pickle.dump(X_train, f)
+# with open('data/X_train.pkl', 'wb') as f:
+# 	pickle.dump(X_train, f)
 with open('data/real_actions.pkl', 'wb') as f:
 	pickle.dump(real_actions, f)
 with open('data/obs_train.pkl', 'wb') as f:

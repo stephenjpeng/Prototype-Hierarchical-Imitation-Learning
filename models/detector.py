@@ -43,7 +43,7 @@ class DetectorAgent(nn.Module):
 
 
     def forward(self, x, context):
-        x = self.vision_summ(x.transpose(3, 1)).squeeze(2, 3) # n, h
+        x = self.vision_summ(x.transpose(3, 1)).squeeze(2).squeeze(2) # n, h
         if self.prev_hidden is None:
             h, c = self.lstm(x)  # n, h each
         else:

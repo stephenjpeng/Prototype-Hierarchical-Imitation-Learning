@@ -42,8 +42,8 @@ def parse_args(args=None):
 
     parser.add_argument('--tensorboard', action='store_true', help='Start a tensorboard session and write the results of training.  Only applies to training.')
     parser.add_argument('--tensorboard_suffix', type=str, default="")
-    parser.add_argument('--log_every', type=int, default=1)
-    parser.add_argument('--val_every', type=int, default=1)
+    parser.add_argument('--log_every', type=int, default=50)
+    parser.add_argument('--val_every', type=int, default=50)
 
     parser.add_argument('--no_shuffle', dest='shuffle', action='store_false', help="Don't shuffle offline data")
     parser.add_argument('--seed', type=int, default=123)
