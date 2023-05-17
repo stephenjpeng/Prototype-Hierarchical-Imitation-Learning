@@ -42,8 +42,8 @@ def parse_args(args=None):
 
     parser.add_argument('--tensorboard', action='store_true', help='Start a tensorboard session and write the results of training.  Only applies to training.')
     parser.add_argument('--tensorboard_suffix', type=str, default="")
-    parser.add_argument('--log_every', type=int, default=25)
-    parser.add_argument('--val_every', type=int, default=25)
+    parser.add_argument('--log_every', type=int, default=1)
+    parser.add_argument('--val_every', type=int, default=1)
 
     parser.add_argument('--no_shuffle', dest='shuffle', action='store_false', help="Don't shuffle offline data")
     parser.add_argument('--seed', type=int, default=123)
@@ -91,7 +91,7 @@ def val_iteration(detector, base_agent, vision_core, val_offline_env, args):
         # run a trajectory
         while not done:
             policy = detector.act(state, [[env.c]], env.get_valid_actions())
-            action = policy.mode()
+            action = policy.mode
             state, reward, done, info = env.step(action)
 
             actions.append(action)
@@ -113,7 +113,7 @@ def val_iteration(detector, base_agent, vision_core, val_offline_env, args):
         total_base_rewards -= base_loss
         total_detector_rewards += rewards.sum()
         total_critic_loss += torch.pow(values - y, 2).sum()
-        total_actor_loss += torch.dot(adv, log_probs[:-1]) / detector.num_actions
+        total_actor_loss += torch.dot(adv, log_probs[:-1].float()) / detector.num_actions
 
     base_reward = total_base_rewards / val_offline_env.N
     detector_reward = total_detector_rewards / val_offline_env.N
@@ -154,7 +154,7 @@ def train(args):
     #### Training
     model_name = (f'{args["env"]}_' +
                  f'{args["max_regimes"]}regimes_' +
-                 f'{args["n_layers"],["hidden_size"]}detector' +
+                 f'{args["n_layers"],args["hidden_size"]}detector' +
                  f'{args["tensorboard_suffix"]}_')
     # create models
     base_agent = CarBaseAgents(args['max_regimes'], args={})
@@ -227,7 +227,7 @@ def train(args):
                 adv = rewards[:-1] + args['gamma'] * values[1:] - values[:-1]
 
             critic_loss = torch.pow(values - y, 2).sum()
-            actor_loss = torch.dot(adv, log_probs[:-1]) / detector.num_actions
+            actor_loss = torch.dot(adv, log_probs[:-1].float()) / detector.num_actions
             detector_loss = critic_loss + actor_loss
 
             detector_loss.backward()
@@ -258,9 +258,9 @@ def train(args):
 
                 # save model if best so far
                 if detector_reward > best_reward:
-                    torch.save(detector.state_dict(), f'{model_name}detector.pth')
-                    torch.save(vision_core.state_dict(), f'{model_name}vision.pth')
-                    torch.save(base_agent.state_dict(), f'{model_name}base.pth')
+                    torch.save(detector.state_dict(), f'saved_models/{model_name}detector.pth')
+                    torch.save(vision_core.state_dict(), f'saved_models/{model_name}vision.pth')
+                    torch.save(base_agent.state_dict(), f'saved_models/{model_name}base.pth')
                     best_reward = detector_reward
 
         b_scheduler.step()

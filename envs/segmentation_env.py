@@ -1,5 +1,6 @@
 import gym
 import numpy as np
+import matplotlib.pyplot as plt
 import torch
 import torchvision.transforms.functional as F
 
@@ -89,6 +90,7 @@ class SegmentationEnv(gym.Env):
         self.cs = []
         self.raw_state = self.base_env.reset()
         self.ep_states = [self.raw_state]
+        self.ep_attns = []
 
     def get_obs(self):
         return self.vision_core(torch.tensor(self.raw_state).unsqueeze(0))
@@ -116,6 +118,7 @@ class SegmentationEnv(gym.Env):
         self.base_agent.reset()
         self.raw_state = self.base_env.reset()
         self.ep_states = [self.raw_state]
+        self.ep_attns = []
 
         return self.get_obs()
 
@@ -133,12 +136,20 @@ class SegmentationEnv(gym.Env):
         # update base agent reward
         self.base_policy = self.base_agent.act(self.get_obs(), self.c, self.base_agent_last_reward, self.base_env.get_true_action())
         self.raw_state, self.base_agent_last_reward, done, info = self.base_env.step(self.base_policy)
+
         self.base_agent_reward += self.base_agent_last_reward
+        self.ep_attns.append(self.base_agent.A)
         self.ep_states.append(self.raw_state)
         self.cs.append(self.c)
 
         if done:
             next_obs = None
+            if action == 0: # force reward update even if no action
+                self.ep_segments.append(self.t - 1)
+                self.c = self.max_regimes
+
+                reward += self.base_agent_cum_reward - self.alpha
+                self.base_agent_reward = 0
         else:
             next_obs = self.get_obs()
 
@@ -146,10 +157,25 @@ class SegmentationEnv(gym.Env):
 
     def tensor_of_trajectory(self):
         vid = []
-        for c, frame in zip(self.cs, self.ep_states):
-            im = F.to_pil_image(frame)
+        for c, frame, attn in zip(self.cs, self.ep_states, self.ep_attns):
+            # one frame for each head
+            frame = np.tile(frame, [1, self.base_agent.num_queries_per_agent, 1])
+            frame = F.to_pil_image(frame)
+
+            # adjust attn to RGB
+            attn = attn.squeeze(0).permute(2, 0, 1)
+            for i in range(self.base_agent.num_queries_per_agent):
+                attn[i] /= attn[i].max()
+            attn = torch.hstack([*attn]).unsqueeze(0)
+            attn = Image.fromarray(
+                    (plt.get_cmap('jet')(
+                        attn.cpu().numpy().squeeze())[:, :, :3] * 255
+                    ).astype(np.uint8))
+            attn = attn.resize(frame.size)
+
+            im = Image.blend(frame, attn, 0.5)
             d = ImageDraw.Draw(im)
-            d.text((5, 5), f'Regime: {c}', fill=(255, 0, 0))
+            d.text((5, 5), f'Regime: {c.item()}', fill=(255, 0, 0))
             vid.append(F.pil_to_tensor(im))
-        vid = torch.tensor(vid)  # t, h, w, c
-        return vid.permute(0, 3, 1, 2).unsqueeze(0)
+        vid = torch.stack(vid)  # t, h, w, c
+        return vid.unsqueeze(0)

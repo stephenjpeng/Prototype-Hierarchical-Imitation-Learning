@@ -82,12 +82,12 @@ class AttentionAgents(nn.Module):
         if r_prev is None:
             r_prev = torch.zeros(n, 1, 1)     # (n, 1, 1)
         else:
-            r_prev = torch.tensor(r_prev)
+            r_prev = r_prev if torch.is_tensor(r_prev) else torch.tensor(r_prev)
             r_prev = r_prev.reshape(n, 1, 1)  # (n, 1, 1)
         if a_prev is None:
             a_prev = torch.zeros(n, 1, self.num_actions)     # (n, 1, a)
         else:
-            a_prev = torch.tensor(a_prev)
+            a_prev = a_prev if torch.is_tensor(a_prev) else torch.tensor(a_prev)
             a_prev = a_prev.reshape(n, 1, self.num_actions)  # (n, 1, a)
 
         # Spatial
@@ -110,6 +110,7 @@ class AttentionAgents(nn.Module):
         A = torch.matmul(K, Q.transpose(2, 1).unsqueeze(1))  # (n, h, w, num_queries_per_agent)
         # (n, h, w, num_queries_per_agent)
         A = spatial_softmax(A)
+        self.A = A.clone().detach()
         # (n, 1, 1, num_queries_per_agent)
         a = apply_alpha(A, V)
 
