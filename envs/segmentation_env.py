@@ -17,6 +17,7 @@ class OfflineEnv(gym.Env):
             ):
         super(OfflineEnv, self).__init__()
 
+        self.device = env_params['device']
         self.D = D
         self.max_ep_len = env_params['max_ep_len']
         self.shuffle = env_params['shuffle']
@@ -52,7 +53,7 @@ class OfflineEnv(gym.Env):
         return self.get_observation()
 
     def step(self, policy):
-        reward = policy.log_prob(torch.tensor(self.get_true_action())).sum()
+        reward = policy.log_prob(torch.tensor(self.get_true_action()).to(self.device)).sum()
 
         self.t += 1
         done = (self.t > self.max_ep_len) or (self.t == len(self.D[self.n_episodes % self.N][0]))
@@ -75,6 +76,7 @@ class SegmentationEnv(gym.Env):
         self.base_agent = base_agent
         self.max_regimes = env_params['max_regimes']
         self.max_seg_len = env_params['max_seg_len']
+        self.device = env_params['device']
         self.online = online
         self.alpha = env_params['alpha']
 
@@ -94,7 +96,7 @@ class SegmentationEnv(gym.Env):
         self.ep_attns = []
 
     def get_obs(self):
-        return self.vision_core(torch.tensor(self.raw_state).unsqueeze(0))
+        return self.vision_core(torch.tensor(self.raw_state).to(self.device).unsqueeze(0))
 
     def get_valid_actions(self):
         # forced to choose a regime

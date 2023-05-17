@@ -72,54 +72,55 @@ def val_iteration(detector, base_agent, vision_core, val_offline_env, args):
     base_agent.eval()
     vision_core.eval()
     print("*** VALIDATING... ***")
-    env = SegmentationEnv(val_offline_env, base_agent, vision_core, False, args)
+    with torch.no_grad():
+        env = SegmentationEnv(val_offline_env, base_agent, vision_core, False, args)
 
-    total_base_rewards = 0
-    total_detector_rewards = 0
-    total_critic_loss = 0
-    total_actor_loss = 0
-    for episode in tqdm(range(val_offline_env.N)):
-        state = env.reset()
-        detector.reset()
-        done = False
+        total_base_rewards = 0
+        total_detector_rewards = 0
+        total_critic_loss = 0
+        total_actor_loss = 0
+        for episode in tqdm(range(val_offline_env.N)):
+            state = env.reset()
+            detector.reset()
+            done = False
 
-        actions = []
-        values = []
-        log_probs = []
-        rewards = []
-        base_loss = 0
+            actions = []
+            values = []
+            log_probs = []
+            rewards = []
+            base_loss = 0
 
-        # run a trajectory
-        while not done:
-            policy = detector.act(state, [[env.c]], env.get_valid_actions())
-            action = policy.mode
-            state, reward, done, info = env.step(action)
+            # run a trajectory
+            while not done:
+                policy = detector.act(state, [[env.c]], env.get_valid_actions())
+                action = policy.mode
+                state, reward, done, info = env.step(action)
 
-            actions.append(action)
-            log_probs.append(policy.log_prob(action))
-            values.append(detector.value)
-            rewards.append(reward)
-            base_loss -= env.base_agent_last_reward
+                actions.append(action.detach().cpu().numpy())
+                log_probs.append(policy.log_prob(action).detach().cpu().numpy())
+                values.append(detector.value.item())
+                rewards.append(reward.item() if torch.is_tensor(reward) else reward)
+                base_loss -= env.base_agent_last_reward.item()
 
-        # calculate loss
-        actions = torch.tensor(actions)
-        rewards = torch.tensor(rewards)
-        log_probs = torch.tensor(log_probs)
-        values = torch.tensor(values)
+            # calculate loss
+            actions = np.array(actions)
+            rewards = np.array(rewards)
+            log_probs = np.array(log_probs)
+            values = np.array(values)
 
-        ## update totals
-        y = rewards + args['gamma'] * values
-        adv = rewards[:-1] + args['gamma'] * values[1:] - values[:-1]
+            ## update totals
+            y = rewards + args['gamma'] * values
+            adv = rewards[:-1] + args['gamma'] * values[1:] - values[:-1]
 
-        total_base_rewards -= base_loss
-        total_detector_rewards += rewards.sum()
-        total_critic_loss += torch.pow(values - y, 2).sum()
-        total_actor_loss += torch.dot(adv, log_probs[:-1].float()) / detector.num_actions
+            total_base_rewards -= base_loss
+            total_detector_rewards += np.sum(rewards)
+            total_critic_loss += np.sum(np.power(values - y, 2))
+            total_actor_loss += np.dot(adv, log_probs[:-1]) / detector.num_actions
 
-    base_reward = total_base_rewards / val_offline_env.N
-    detector_reward = total_detector_rewards / val_offline_env.N
-    critic_loss = total_critic_loss / val_offline_env.N
-    actor_loss = total_actor_loss / val_offline_env.N
+        base_reward = total_base_rewards / val_offline_env.N
+        detector_reward = total_detector_rewards / val_offline_env.N
+        critic_loss = total_critic_loss / val_offline_env.N
+        actor_loss = total_actor_loss / val_offline_env.N
 
     detector.train()
     base_agent.train()
@@ -158,9 +159,13 @@ def train(args):
                  f'{args["n_layers"],args["hidden_size"]}detector' +
                  f'{args["tensorboard_suffix"]}_')
     # create models
-    base_agent = CarBaseAgents(args['max_regimes'], args={})
+    base_agent = CarBaseAgents(args['max_regimes'], args={'device': args['device']})
     detector   = CarDetectorAgent(args)
     vision_core = VisionNetwork(args)
+
+    base_agent.to(args['device'])
+    detector.to(args['device'])
+    vision_core.to(args['device'])
 
     offline_env = OfflineEnv(train_dataset, args)
     env = SegmentationEnv(offline_env, base_agent, vision_core, False, args)
@@ -186,7 +191,7 @@ def train(args):
     for epoch in tqdm(range(args['num_epochs'])):
         for episode in tqdm(range(offline_env.N)):
             global_step += 1
-            state = env.reset()
+            state = env.reset().to(args['device'])
             detector.reset()
             done = False
 
@@ -213,10 +218,12 @@ def train(args):
                 base_loss -= env.base_agent_last_reward
 
             # update parameters
-            rewards = torch.tensor(rewards, requires_grad=True)
+            rewards = torch.tensor(rewards, requires_grad=True).to(args['device'])
             actions = torch.tensor(actions)
-            log_probs = torch.tensor(log_probs, requires_grad=True).float()
-            values = torch.tensor(values, requires_grad=True)
+            log_probs = torch.tensor(log_probs, requires_grad=True).float().to(args['device'])
+            values = torch.tensor(values, requires_grad=True).to(args['device'])
+
+            import pdb; pdb.set_trace()
 
             ## update base agent
             base_loss.backward()
@@ -238,10 +245,10 @@ def train(args):
             # log training
             if global_step % args['log_every'] == 0 and args['tensorboard']:
                 sample_trajectory = env.tensor_of_trajectory()
-                writer.add_scalar('Train/BaseReward', -base_loss, global_step)
-                writer.add_scalar('Train/DetectorReward', rewards.sum(), global_step)
-                writer.add_scalar('Train/CriticLoss', critic_loss, global_step)
-                writer.add_scalar('Train/ActorLoss', actor_loss, global_step)
+                writer.add_scalar('Train/BaseReward', -base_loss.item(), global_step)
+                writer.add_scalar('Train/DetectorReward', rewards.sum().item(), global_step)
+                writer.add_scalar('Train/CriticLoss', critic_loss.item(), global_step)
+                writer.add_scalar('Train/ActorLoss', actor_loss.item(), global_step)
                 writer.add_scalar('Train/LR', d_scheduler.get_last_lr(), global_step)
                 writer.add_video('Train/SampleTrajectory', sample_trajectory, global_step)
 

@@ -22,6 +22,7 @@ class AttentionAgents(nn.Module):
         super(AttentionAgents, self).__init__()
         self.agent_params = agent_params
 
+        self.device = agent_params['device']
         self.num_actions = agent_params['num_actions']
         self.hidden_size = agent_params['lstm_hidden_size']
         
@@ -68,6 +69,8 @@ class AttentionAgents(nn.Module):
                 ptu.build_mlp(self.hidden_size, self.num_actions, 0, 0,
                         'relu', agent_params['policy_act'])
                 for _ in range(self.num_policy_heads)]
+        for policy_head in self.policy_heads:
+            policy_head.to(self.device)
         self.values_head = ptu.build_mlp(self.hidden_size, self.num_actions, 0, 0, 'relu',
                 agent_params['values_act'])
 
@@ -82,12 +85,12 @@ class AttentionAgents(nn.Module):
         if r_prev is None:
             r_prev = torch.zeros(n, 1, 1)     # (n, 1, 1)
         else:
-            r_prev = r_prev if torch.is_tensor(r_prev) else torch.tensor(r_prev)
+            r_prev = r_prev if torch.is_tensor(r_prev) else torch.tensor(r_prev).to(self.device)
             r_prev = r_prev.reshape(n, 1, 1)  # (n, 1, 1)
         if a_prev is None:
             a_prev = torch.zeros(n, 1, self.num_actions)     # (n, 1, a)
         else:
-            a_prev = a_prev if torch.is_tensor(a_prev) else torch.tensor(a_prev)
+            a_prev = a_prev if torch.is_tensor(a_prev) else torch.tensor(a_prev).to(self.device)
             a_prev = a_prev.reshape(n, 1, self.num_actions)  # (n, 1, a)
 
         # Spatial
@@ -100,7 +103,7 @@ class AttentionAgents(nn.Module):
         if self.prev_hidden is None:
             self.prev_hidden = torch.zeros(
                 n, self.hidden_size, requires_grad=True
-            )
+            ).to(self.device)
 
         Q = self.q_mlp(self.prev_hidden)  # (n, h, w, num_q * (c_k + c_s))
         Q = Q.reshape(n, self.num_queries, self.c_k + self.c_s)  # (n, num_queries, c_k + c_s)

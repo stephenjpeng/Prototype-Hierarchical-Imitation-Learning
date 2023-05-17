@@ -22,6 +22,7 @@ class CarDetectorAgent(DetectorAgent):
         self.agent_params.update(args)
         self.value = 0
         self.policy = None
+        self.device = args['device']
         super(CarDetectorAgent, self).__init__(self.agent_params)
 
     def act(self, obs, c, valid=None):
@@ -32,7 +33,7 @@ class CarDetectorAgent(DetectorAgent):
         self.value = value
         policy = F.softmax(policy, dim=1)
         if valid is not None:
-            valid = torch.tensor(valid)
+            valid = torch.tensor(valid).to(self.device)
             policy = policy * valid
             policy /= policy.sum(axis=1)
         self.policy = dist.Categorical(probs=policy)

@@ -15,6 +15,7 @@ class DetectorAgent(nn.Module):
     """
     def __init__(self, agent_params):
         super(DetectorAgent, self).__init__()
+        self.device = agent_params['device']
         self.agent_params = agent_params
 
         self.num_actions = agent_params['max_regimes'] + 1  # classify, or leave alone
@@ -50,7 +51,7 @@ class DetectorAgent(nn.Module):
             h, c = self.lstm(x, (self.prev_hidden, self.prev_cell))
             self.prev_hidden, self.prev_cell = h, c
 
-        output = self.mlp(torch.hstack([h, torch.tensor(context)]))  # n, a + 1
+        output = self.mlp(torch.hstack([h, torch.tensor(context).to(self.device)]))  # n, a + 1
         value  = self.v_activation(output[:, 0])   # n, 1
         policy = self.pi_activation(output[:, 1:]) # n, a
 
