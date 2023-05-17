@@ -42,7 +42,8 @@ def parse_args(args=None):
 
     parser.add_argument('--tensorboard', action='store_true', help='Start a tensorboard session and write the results of training.  Only applies to training.')
     parser.add_argument('--tensorboard_suffix', type=str, default="")
-    parser.add_argument('--log_every', type=int, default=500)
+    parser.add_argument('--log_every', type=int, default=25)
+    parser.add_argument('--val_every', type=int, default=25)
 
     parser.add_argument('--no_shuffle', dest='shuffle', action='store_false', help="Don't shuffle offline data")
     parser.add_argument('--seed', type=int, default=123)
@@ -146,7 +147,7 @@ def train(args):
     N = len(dataset)
     rng = np.random.default_rng(args['seed'])
     rng.shuffle(dataset)
-    split_pt = 4 * N // 5
+    split_pt = 9 * N // 10
     train_dataset = dataset[:split_pt]
     val_dataset   = dataset[split_pt:]
 
@@ -183,6 +184,7 @@ def train(args):
     global_step = 0
     for epoch in tqdm(range(args['num_epochs'])):
         for episode in tqdm(range(offline_env.N)):
+            global_step += 1
             state = env.reset()
             detector.reset()
             done = False
@@ -199,7 +201,6 @@ def train(args):
 
             # run a trajectory
             while not done:
-                global_step += 1
                 policy = detector.act(state, [[env.c]], env.get_valid_actions())
                 action = policy.sample()
                 state, reward, done, info = env.step(action)
@@ -243,23 +244,24 @@ def train(args):
                 writer.add_scalar('Train/LR', d_scheduler.get_last_lr(), global_step)
                 writer.add_video('Train/SampleTrajectory', sample_trajectory, global_step)
 
-        # Validation
-        base_reward, detector_reward, val_critic_loss, val_actor_loss, sample_trajectory = val_iteration(
-            detector, base_agent, vision_core, val_offline_env, args
-        )
-        if args['tensorboard']:
-            writer.add_scalar('Val/BaseReward', base_reward, global_step)
-            writer.add_scalar('Val/DetectorReward', detector_reward, global_step)
-            writer.add_scalar('Val/CriticLoss', val_critic_loss, global_step)
-            writer.add_scalar('Val/ActorLoss', val_actor_loss, global_step)
-            writer.add_video('Val/SampleTrajectory', sample_trajectory, global_step)
+            # Validation
+            if global_step % args['val_every'] == 0:
+                base_reward, detector_reward, val_critic_loss, val_actor_loss, sample_trajectory = val_iteration(
+                    detector, base_agent, vision_core, val_offline_env, args
+                )
+                if args['tensorboard']:
+                    writer.add_scalar('Val/BaseReward', base_reward, global_step)
+                    writer.add_scalar('Val/DetectorReward', detector_reward, global_step)
+                    writer.add_scalar('Val/CriticLoss', val_critic_loss, global_step)
+                    writer.add_scalar('Val/ActorLoss', val_actor_loss, global_step)
+                    writer.add_video('Val/SampleTrajectory', sample_trajectory, global_step)
 
-        # save model if best so far
-        if detector_reward > best_reward:
-            torch.save(detector.state_dict(), f'{model_name}detector.pth')
-            torch.save(vision_core.state_dict(), f'{model_name}vision.pth')
-            torch.save(base_agent.state_dict(), f'{model_name}base.pth')
-            best_reward = detector_reward
+                # save model if best so far
+                if detector_reward > best_reward:
+                    torch.save(detector.state_dict(), f'{model_name}detector.pth')
+                    torch.save(vision_core.state_dict(), f'{model_name}vision.pth')
+                    torch.save(base_agent.state_dict(), f'{model_name}base.pth')
+                    best_reward = detector_reward
 
         b_scheduler.step()
         d_scheduler.step()
