@@ -18,6 +18,7 @@ class OfflineEnv(gym.Env):
         super(OfflineEnv, self).__init__()
 
         self.D = D
+        self.max_ep_len = env_params['max_ep_len']
         self.shuffle = env_params['shuffle']
         self.rng = np.random.default_rng(env_params['seed'])
         if self.shuffle:
@@ -54,7 +55,7 @@ class OfflineEnv(gym.Env):
         reward = policy.log_prob(torch.tensor(self.get_true_action())).sum()
 
         self.t += 1
-        done = (self.t == len(self.D[self.n_episodes % self.N][0]))
+        done = (self.t > self.max_ep_len) or (self.t == len(self.D[self.n_episodes % self.N][0]))
         next_obs = None if done else self.get_observation()
 
         return next_obs, reward, done, {}
@@ -116,6 +117,7 @@ class SegmentationEnv(gym.Env):
         self.ep_segments = []
         self.segments.append(self.ep_segments)
         self.base_agent.reset()
+        self.vision_core.reset()
         self.raw_state = self.base_env.reset()
         self.ep_states = [self.raw_state]
         self.ep_attns = []

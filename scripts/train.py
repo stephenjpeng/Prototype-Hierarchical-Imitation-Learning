@@ -27,6 +27,7 @@ def parse_args(args=None):
     # train params
     parser.add_argument('--alpha', type=float, default=0.5, help="penalty for higher segments")
     parser.add_argument('--gamma', type=float, default=0.99, help="discount factor")
+    parser.add_argument('--max_ep_len', type=int, default=1000, help="Max frames in a segment")
 
     # detector params
     parser.add_argument('--max_seg_len', type=int, default=1000, help="Max frames in a segment")
@@ -189,9 +190,9 @@ def train(args):
             detector.reset()
             done = False
 
-            detector_opt.zero_grad()
-            base_opt.zero_grad()
-            vision_opt.zero_grad()
+            detector.zero_grad()
+            base_agent.zero_grad()
+            vision_core.zero_grad()
 
             actions = []
             values = []
@@ -222,9 +223,9 @@ def train(args):
             base_opt.step()
 
             ## update detector and vision core with AC
-            with torch.no_grad():
-                y = rewards + args['gamma'] * values
-                adv = rewards[:-1] + args['gamma'] * values[1:] - values[:-1]
+            # with torch.no_grad():
+            y = rewards + args['gamma'] * values
+            adv = rewards[:-1] + args['gamma'] * values[1:] - values[:-1]
 
             critic_loss = torch.pow(values - y, 2).sum()
             actor_loss = torch.dot(adv, log_probs[:-1].float()) / detector.num_actions
