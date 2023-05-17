@@ -131,13 +131,13 @@ class SegmentationEnv(gym.Env):
             self.c = action - 1
 
             reward += self.base_agent_cum_reward - self.alpha
-            self.base_agent_reward = 0
+            self.base_agent_cum_reward = 0
 
         # update base agent reward
         self.base_policy = self.base_agent.act(self.get_obs(), self.c, self.base_agent_last_reward, self.base_env.get_true_action())
         self.raw_state, self.base_agent_last_reward, done, info = self.base_env.step(self.base_policy)
 
-        self.base_agent_reward += self.base_agent_last_reward
+        self.base_agent_cum_reward += self.base_agent_last_reward
         self.ep_attns.append(self.base_agent.A)
         self.ep_states.append(self.raw_state)
         self.cs.append(self.c)
@@ -149,7 +149,7 @@ class SegmentationEnv(gym.Env):
                 self.c = self.max_regimes
 
                 reward += self.base_agent_cum_reward - self.alpha
-                self.base_agent_reward = 0
+                self.base_agent_cum_reward = 0
         else:
             next_obs = self.get_obs()
 
