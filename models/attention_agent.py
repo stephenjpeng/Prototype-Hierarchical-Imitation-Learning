@@ -132,7 +132,7 @@ class AttentionAgents(nn.Module):
             h, c = self.policy_core(answer)
         else:
             h, c = self.policy_core(answer, (self.prev_hidden, self.prev_cell))
-            self.prev_hidden, self.prev_cell = h, c
+        self.prev_hidden, self.prev_cell = h, c
         # (n, hidden_size)
         output = h
 
