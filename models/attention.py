@@ -4,6 +4,9 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
+
+# from models.convLSTM import MAConvLSTMCell
+
 class ConvLSTMCell(nn.Module):
     def __init__(self, input_channels, hidden_channels, kernel_size):
         """Initialize stateful ConvLSTM cell.
@@ -162,22 +165,34 @@ class VisionNetwork(nn.Module):
             ),
             nn.Conv2d(
                 in_channels=32,
-                out_channels=64,
+                out_channels=64 if args['vision_lstm'] else args['hidden_size'],
                 kernel_size=(4, 4),
                 stride=2,
                 padding=2,  # Padding s.t. the output shapes match the paper.
             ),
         )
-        self.vision_lstm = ConvLSTMCell(
-            input_channels=64, hidden_channels=args['hidden_size'], kernel_size=3
-        )
+
+        if args['vision_lstm']:
+            self.vision_lstm = ConvLSTMCell(
+                input_channels=64, hidden_channels=args['hidden_size'], kernel_size=3
+            )
+        else:
+            self.vision_lstm = None
+        # self.vision_lstm = MAConvLSTMCell(
+        #     (12, 12), 64, args['hidden_size'], kernel_size=(3, 3), True
+        # )
 
     def reset(self):
-        self.vision_lstm.reset()
+        if self.vision_lstm is not None:
+            self.vision_lstm.reset()
 
     def forward(self, X):
-        X = X.transpose(1, 3) / 255
-        O, _ = self.vision_lstm(self.vision_cnn(X))
+        X = (2 * X.transpose(1, 3) / 255) - 1
+        X = self.vision_cnn(X)
+        if self.vision_lstm is not None:
+            O, _ = self.vision_lstm(X)
+        else:
+            O = X # n, hidden, h, w
         return O.transpose(1, 3)
 
 

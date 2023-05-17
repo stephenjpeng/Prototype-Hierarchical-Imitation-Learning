@@ -24,9 +24,14 @@ def parse_args(args=None):
     parser.add_argument('--train_X_file', type=str, default="data/obs_train.pkl")
     parser.add_argument('--train_y_file', type=str, default="data/real_actions.pkl")
 
+    # vision params
+    parser.add_argument('--vision_lstm', action='store_true', help='use a vision lstm')
+    parser.add_argument('--no_vision_lstm', dest='vision_lstm', action='store_false', help='don\'t use a vision lstm')
+
+
     # train params
     parser.add_argument('--alpha', type=float, default=0.5, help="penalty for higher segments")
-    parser.add_argument('--base_lr', type=float, default=0.1, help="base agent learning rate")
+    parser.add_argument('--base_lr', type=float, default=0.01, help="base agent learning rate")
     parser.add_argument('--gamma', type=float, default=0.99, help="discount factor")
     parser.add_argument('--max_ep_len', type=int, default=1000, help="Max frames in a segment")
 
@@ -209,7 +214,7 @@ def train(args):
 
             # run a trajectory
             while not done:
-                policy = detector.act(state, [[env.c]], env.get_valid_actions())
+                policy = detector.act(state.clone().detach(), [[env.c]], env.get_valid_actions())
                 action = policy.sample()
                 state, reward, done, info = env.step(action)
 
@@ -225,9 +230,10 @@ def train(args):
             log_probs = torch.tensor(log_probs, requires_grad=True).float().to(args['device'])
             values = torch.tensor(values, requires_grad=True).to(args['device'])
 
-            ## update base agent
+            ## update base agent and vision
             base_loss.backward()
             base_opt.step()
+            vision_opt.step()
 
             ## update detector and vision core with AC
             # with torch.no_grad():
@@ -240,7 +246,6 @@ def train(args):
 
             detector_loss.backward()
             detector_opt.step()
-            vision_opt.step()
 
             # log training
             if global_step % args['log_every'] == 0 and args['tensorboard']:
