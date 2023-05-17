@@ -17,6 +17,11 @@ _str_to_activation = {
     'identity': nn.Identity(),
 }
 
+_str_to_pool = {
+    'max': nn.MaxPool2d,
+    'avg': nn.AvgPool2d,
+}
+
 
 def build_mlp(
         input_size: int,

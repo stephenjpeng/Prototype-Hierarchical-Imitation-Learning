@@ -11,12 +11,11 @@ from PIL import ImageDraw
 class OfflineEnv(gym.Env):
     def __init__(
             self,
-            D,            # dataset of trajectories (N, ep_len, 2)
+            D,            # dataset of trajectories (N, 2, ep_len)
             env_params,   # parameters for our environment
             ):
         super(OfflineEnv, self).__init__()
 
-        # TODO: create dataloader for D
         self.D = D
         self.shuffle = env_params['shuffle']
         self.rng = np.random.default_rng(env_params['seed'])
@@ -30,10 +29,15 @@ class OfflineEnv(gym.Env):
         self.n_episodes = 0
 
     def get_observation(self):
-        return self.D[self.n_episodes % self.N][self.t][0]
+        return self.D[self.n_episodes % self.N][0][self.t]
 
     def get_true_action(self):
-        return self.D[self.n_episodes % self.N][self.t][1]
+        labeled_action = self.D[self.n_episodes % self.N][1][self.t]
+
+        # map [steer, accel, brake] back into [steer, speed] of [0, 1] range
+        steering = (labeled_action[0] + 1) / 2
+        speed = (labeled_action[1] - labeled_action[2] + 1) / 2
+        return [steering, speed]
 
     def reset(self):
         self.t = 0
@@ -46,11 +50,11 @@ class OfflineEnv(gym.Env):
         return self.get_observation()
 
     def step(self, policy):
+        reward = policy.log_prob(torch.tensor(self.get_true_action())).sum()
+
         self.t += 1
-        done = (self.t == len(self.D[self.n_episodes % self.N]))
+        done = (self.t == len(self.D[self.n_episodes % self.N][0]))
         next_obs = None if done else self.get_observation()
-        
-        reward = policy.log_prob(self.get_true_action())
 
         return next_obs, reward, done, {}
 
@@ -60,6 +64,7 @@ class SegmentationEnv(gym.Env):
             base_env,     # base environment
             base_agent,   # base agent
             vision_core,  # vision core to process state
+            online,       # whether to create an online version
             env_params,   # parameters for our environment
             ):
         super(SegmentationEnv, self).__init__()
@@ -67,7 +72,8 @@ class SegmentationEnv(gym.Env):
         self.vision_core = vision_core
         self.base_agent = base_agent
         self.max_regimes = env_params['max_regimes']
-        self.online = env_params['online']
+        self.max_seg_len = env_params['max_seg_len']
+        self.online = online
         self.alpha = env_params['alpha']
 
         self.t = 0
@@ -77,7 +83,7 @@ class SegmentationEnv(gym.Env):
         self.base_agent_last_reward = 0
         self.n_episodes = 0
 
-        self.c = None # will be forced to choose c at start
+        self.c = self.max_regimes # will be forced to choose c at start
         self.segments = []
         self.ep_segments = []
         self.cs = []
@@ -85,7 +91,7 @@ class SegmentationEnv(gym.Env):
         self.ep_states = [self.raw_state]
 
     def get_obs(self):
-        return self.vision_core(np.expand_dims(self.raw_state, 0))
+        return self.vision_core(torch.tensor(self.raw_state).unsqueeze(0))
 
     def get_valid_actions(self):
         # forced to choose a regime
@@ -103,7 +109,7 @@ class SegmentationEnv(gym.Env):
         self.base_agent_cum_reward = 0
         self.base_agent_last_reward = 0
 
-        self.c = None # will be forced to choose c at start
+        self.c = self.max_regimes # will be forced to choose c at start
         self.cs = []
         self.ep_segments = []
         self.segments.append(self.ep_segments)
@@ -125,14 +131,14 @@ class SegmentationEnv(gym.Env):
             self.base_agent_reward = 0
 
         # update base agent reward
-        self.base_policy = self.base_agent.act(self.get_obs(), self.c, self.base_agent_last_reward, self.base_env.get_real_action())
+        self.base_policy = self.base_agent.act(self.get_obs(), self.c, self.base_agent_last_reward, self.base_env.get_true_action())
         self.raw_state, self.base_agent_last_reward, done, info = self.base_env.step(self.base_policy)
         self.base_agent_reward += self.base_agent_last_reward
         self.ep_states.append(self.raw_state)
         self.cs.append(self.c)
 
         if done:
-            next_obs = self.reset()
+            next_obs = None
         else:
             next_obs = self.get_obs()
 

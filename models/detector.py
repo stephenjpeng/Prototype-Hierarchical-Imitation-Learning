@@ -20,6 +20,7 @@ class DetectorAgent(nn.Module):
         self.num_actions = agent_params['max_regimes'] + 1  # classify, or leave alone
         self.hidden_size = agent_params['hidden_size']
 
+        self.vision_summ = ptu._str_to_pool[agent_params['vision_summ']](12)
         self.lstm = nn.LSTMCell(self.hidden_size, self.hidden_size)
         self.prev_hidden = None
         self.prev_cell   = None
@@ -42,13 +43,14 @@ class DetectorAgent(nn.Module):
 
 
     def forward(self, x, context):
+        x = self.vision_summ(x.transpose(3, 1)).squeeze(2, 3) # n, h
         if self.prev_hidden is None:
             h, c = self.lstm(x)  # n, h each
         else:
             h, c = self.lstm(x, (self.prev_hidden, self.prev_cell))
             self.prev_hidden, self.prev_cell = h, c
 
-        output = self.mlp(torch.cat([h, torch.tensor(context)]))  # n, a + 1
+        output = self.mlp(torch.hstack([h, torch.tensor(context)]))  # n, a + 1
         value  = self.v_activation(output[:, 0])   # n, 1
         policy = self.pi_activation(output[:, 1:]) # n, a
 

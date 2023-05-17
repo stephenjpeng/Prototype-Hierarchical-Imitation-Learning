@@ -34,6 +34,7 @@ class AttentionAgents(nn.Module):
         self.ch = agent_params['vision_ch']
 
         self.num_agents = agent_params['num_agents']
+        self.num_policy_heads = agent_params['num_policy_heads']
         self.num_queries_per_agent = agent_params['num_queries_per_agent']
         self.num_queries = self.num_agents * self.num_queries_per_agent
 
@@ -41,7 +42,8 @@ class AttentionAgents(nn.Module):
 
         self.answer_mlp = ptu.build_mlp(
             # queries + answers + action + reward
-            self.num_queries_per_agent * (self.c_k + 2 * self.c_s + self.c_v) + 2,
+            self.num_queries_per_agent * (self.c_k + 2 * self.c_s + self.c_v) +
+            self.num_actions + 1,
             self.hidden_size,
             agent_params['a_mlp_n_layers'],
             agent_params['a_mlp_size'],              # hidden size
@@ -62,8 +64,10 @@ class AttentionAgents(nn.Module):
             'identity',                               # output activations
         )
 
-        self.policy_head = ptu.build_mlp(self.hidden_size, self.num_actions, 0, 0,
-                'relu', agent_params['policy_act'])
+        self.policy_heads = [
+                ptu.build_mlp(self.hidden_size, self.num_actions, 0, 0,
+                        'relu', agent_params['policy_act'])
+                for _ in range(self.num_policy_heads)]
         self.values_head = ptu.build_mlp(self.hidden_size, self.num_actions, 0, 0, 'relu',
                 agent_params['values_act'])
 
@@ -78,11 +82,13 @@ class AttentionAgents(nn.Module):
         if r_prev is None:
             r_prev = torch.zeros(n, 1, 1)     # (n, 1, 1)
         else:
+            r_prev = torch.tensor(r_prev)
             r_prev = r_prev.reshape(n, 1, 1)  # (n, 1, 1)
         if a_prev is None:
-            a_prev = torch.zeros(n, 1, 1)     # (n, 1, 1)
+            a_prev = torch.zeros(n, 1, self.num_actions)     # (n, 1, a)
         else:
-            a_prev = a_prev.reshape(n, 1, 1)  # (n, 1, 1)
+            a_prev = torch.tensor(a_prev)
+            a_prev = a_prev.reshape(n, 1, self.num_actions)  # (n, 1, a)
 
         # Spatial
         # (n, h, w, c_k), (n, h, w, c_v)
@@ -97,8 +103,8 @@ class AttentionAgents(nn.Module):
             )
 
         Q = self.q_mlp(self.prev_hidden)  # (n, h, w, num_q * (c_k + c_s))
-        Q = Q.reshape(n, self.h, self.w, self.num_queries, self.c_k + self.c_s)  # (n, h, w, num_queries, c_k + c_s)
-        Q = Q.chunk(self.num_agents, dim=3)[c]  # (n, h, w, num_queries_per_agent, c_k + c_s)
+        Q = Q.reshape(n, self.num_queries, self.c_k + self.c_s)  # (n, num_queries, c_k + c_s)
+        Q = Q.chunk(self.num_agents, dim=1)[c]  # (n, num_queries_per_agent, c_k + c_s)
 
         # Answer
         A = torch.matmul(K, Q.transpose(2, 1).unsqueeze(1))  # (n, h, w, num_queries_per_agent)
@@ -107,7 +113,7 @@ class AttentionAgents(nn.Module):
         # (n, 1, 1, num_queries_per_agent)
         a = apply_alpha(A, V)
 
-        # (n, (c_v + c_s) * num_queries_per_agent + (c_k + c_s) * num_queries_per_agent + 1 + 1)
+        # (n, (c_v + c_s) * num_queries_per_agent + (c_k + c_s) * num_queries_per_agent + 1 + a)
         answer = torch.cat(
             torch.chunk(a, 4, dim=1)
             + torch.chunk(Q, 4, dim=1)
@@ -128,7 +134,7 @@ class AttentionAgents(nn.Module):
 
         # Outputs
         # (n, num_actions)
-        logits = self.policy_head(output)
+        logits = (policy_head(output) for policy_head in self.policy_heads)
         # (n, num_actions)
         values = self.values_head(output)
         return logits, values

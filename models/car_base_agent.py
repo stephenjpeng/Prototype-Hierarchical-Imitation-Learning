@@ -10,14 +10,14 @@ class CarBaseAgents(AttentionAgents):
     """
     def __init__(self, num_agents, args={}):
         self.agent_params = {
-                'num_actions': 3,
+                'num_actions': 2,
                 'num_policy_heads': 2,      # estimate alpha and beta for the controls
                 'lstm_hidden_size': 128,    # paper: 256
                 'c_k': 8,                   # paper: 8
                 'c_v': 120,                 # paper: 120
                 'c_s': 64,                  # paper: 64
-                'vision_h': 96,
-                'vision_w': 96,
+                'vision_h': 12,
+                'vision_w': 12,
                 'vision_ch': 3,
                 'num_agents': num_agents,
                 'num_queries_per_agent': 2, # paper: 4

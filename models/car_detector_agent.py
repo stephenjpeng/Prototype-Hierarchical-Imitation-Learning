@@ -1,4 +1,6 @@
+import torch
 import torch.distributions as dist
+import torch.nn.functional as F
 
 
 from models.detector import DetectorAgent
@@ -28,9 +30,10 @@ class CarDetectorAgent(DetectorAgent):
         """
         value, policy = self.forward(obs, c)
         self.value = value
-        self.policy = dist.Categorical(logits=policy)
-        # check unsqueeze is necessary
-        import pdb; pdb.set_trace()
+        policy = F.softmax(policy, dim=1)
         if valid is not None:
-            self.policy = self.policy * valid
+            valid = torch.tensor(valid)
+            policy = policy * valid
+            policy /= policy.sum(axis=1)
+        self.policy = dist.Categorical(probs=policy)
         return self.policy

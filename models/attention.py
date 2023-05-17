@@ -150,7 +150,7 @@ class ConvLSTMCell(nn.Module):
 
 
 class VisionNetwork(nn.Module):
-    def __init__(self):
+    def __init__(self, args):
         super(VisionNetwork, self).__init__()
         self.vision_cnn = nn.Sequential(
             nn.Conv2d(
@@ -169,14 +169,14 @@ class VisionNetwork(nn.Module):
             ),
         )
         self.vision_lstm = ConvLSTMCell(
-            input_channels=64, hidden_channels=128, kernel_size=3
+            input_channels=64, hidden_channels=args['hidden_size'], kernel_size=3
         )
 
     def reset(self):
         self.vision_lstm.reset()
 
     def forward(self, X):
-        X = X.transpose(1, 3)
+        X = X.transpose(1, 3) / 255
         O, _ = self.vision_lstm(self.vision_cnn(X))
         return O.transpose(1, 3)
 

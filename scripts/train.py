@@ -29,10 +29,12 @@ def parse_args(args=None):
     parser.add_argument('--gamma', type=float, default=0.99, help="discount factor")
 
     # detector params
+    parser.add_argument('--max_seg_len', type=int, default=1000, help="Max frames in a segment")
     parser.add_argument('--n_layers', type=int, default=2, help="# MLP layers in detector")
-    parser.add_argument('--hidden_size', type=int, default=256, help="LSTM hidden size detector")
+    parser.add_argument('--hidden_size', type=int, default=128, help="LSTM hidden size detector")
     parser.add_argument('--v_activation', type=str, default='identity')
     parser.add_argument('--pi_activation', type=str, default='identity')
+    parser.add_argument('--vision_summ', type=str, default='max', help="Pooling type for output of vision core")
 
     parser.add_argument('--cuda', type=bool, default=torch.cuda.is_available())
     parser.add_argument('--cpu', action='store_true', help='Ignore CUDA.')
@@ -68,44 +70,46 @@ def val_iteration(detector, base_agent, vision_core, val_offline_env, args):
     base_agent.eval()
     vision_core.eval()
     print("*** VALIDATING... ***")
-    env = SegmentationEnv(val_offline_env, base_agent, vision_core, args)
+    env = SegmentationEnv(val_offline_env, base_agent, vision_core, False, args)
 
     total_base_rewards = 0
     total_detector_rewards = 0
     total_critic_loss = 0
     total_actor_loss = 0
-    for episode in tqdm(range(len(val_offline_env.N))):
+    for episode in tqdm(range(val_offline_env.N)):
         state = env.reset()
         detector.reset()
         done = False
 
+        actions = []
         values = []
         log_probs = []
         rewards = []
-        base_reward = []
+        base_loss = 0
 
         # run a trajectory
         while not done:
-            policy = detector.act(state, env.c, env.get_valid_actions())
+            policy = detector.act(state, [[env.c]], env.get_valid_actions())
             action = policy.mode()
             state, reward, done, info = env.step(action)
 
-            log_probs.append(detector.log_prob(action))
+            actions.append(action)
+            log_probs.append(policy.log_prob(action))
             values.append(detector.value)
             rewards.append(reward)
-            base_reward.append(env.base_agent_last_reward)
+            base_loss -= env.base_agent_last_reward
 
         # calculate loss
-        base_rewards = torch.cat(base_rewards)
-        rewards = torch.cat(rewards)
-        log_probs = torch.cat(log_probs)
-        values = torch.cat(values)
+        actions = torch.tensor(actions)
+        rewards = torch.tensor(rewards)
+        log_probs = torch.tensor(log_probs)
+        values = torch.tensor(values)
 
         ## update totals
         y = rewards + args['gamma'] * values
         adv = rewards[:-1] + args['gamma'] * values[1:] - values[:-1]
 
-        total_base_rewards += base_rewards.sum()
+        total_base_rewards -= base_loss
         total_detector_rewards += rewards.sum()
         total_critic_loss += torch.pow(values - y, 2).sum()
         total_actor_loss += torch.dot(adv, log_probs[:-1]) / detector.num_actions
@@ -140,10 +144,11 @@ def train(args):
     # split data into test and train
     dataset = list(zip(X_train, real_actions))
     N = len(dataset)
-    rng = np.random.default_rng(env_params['seed'])
+    rng = np.random.default_rng(args['seed'])
     rng.shuffle(dataset)
-    train_dataset = dataset[:(4 * N // 5)]
-    val_dataset   = dataset[(4 * N // 5):]
+    split_pt = 4 * N // 5
+    train_dataset = dataset[:split_pt]
+    val_dataset   = dataset[split_pt:]
 
     #### Training
     model_name = (f'{args["env"]}_' +
@@ -153,10 +158,10 @@ def train(args):
     # create models
     base_agent = CarBaseAgents(args['max_regimes'], args={})
     detector   = CarDetectorAgent(args)
-    vision_core = VisionNetwork()
+    vision_core = VisionNetwork(args)
 
     offline_env = OfflineEnv(train_dataset, args)
-    env = SegmentationEnv(offline_env, base_agent, vision_core, args)
+    env = SegmentationEnv(offline_env, base_agent, vision_core, False, args)
 
     val_offline_env = OfflineEnv(val_dataset, args)
 
@@ -177,7 +182,7 @@ def train(args):
     print("*** Starting Training... ***")
     global_step = 0
     for epoch in tqdm(range(args['num_epochs'])):
-        for episode in tqdm(range(len(offline_env.N))):
+        for episode in tqdm(range(offline_env.N)):
             state = env.reset()
             detector.reset()
             done = False
@@ -186,31 +191,32 @@ def train(args):
             base_opt.zero_grad()
             vision_opt.zero_grad()
 
+            actions = []
             values = []
             log_probs = []
             rewards = []
-            base_rewards = []
+            base_loss = 0
 
             # run a trajectory
             while not done:
                 global_step += 1
-                policy = detector.act(state, env.c, env.get_valid_actions())
-                action = policy.rsample()
+                policy = detector.act(state, [[env.c]], env.get_valid_actions())
+                action = policy.sample()
                 state, reward, done, info = env.step(action)
 
-                log_probs.append(detector.log_prob(action))
+                actions.append(action)
+                log_probs.append(policy.log_prob(action))
                 values.append(detector.value)
                 rewards.append(reward)
-                base_rewards.append(env.base_agent_last_reward)
+                base_loss -= env.base_agent_last_reward
 
             # update parameters
-            base_rewards = torch.cat(base_rewards)
-            rewards = torch.cat(rewards)
-            log_probs = torch.cat(log_probs)
-            values = torch.cat(values)
+            rewards = torch.tensor(rewards, requires_grad=True)
+            actions = torch.tensor(actions)
+            log_probs = torch.tensor(log_probs, requires_grad=True).float()
+            values = torch.tensor(values, requires_grad=True)
 
             ## update base agent
-            base_loss = -base_rewards.sum()
             base_loss.backward()
             base_opt.step()
 
