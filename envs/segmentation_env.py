@@ -137,6 +137,7 @@ class SegmentationEnv(gym.Env):
             reward += self.base_agent_cum_reward - self.alpha
             self.base_agent_cum_reward = 0
 
+        import pdb; pdb.set_trace()
         # update base agent reward
         self.base_policy = self.base_agent.act(self.get_obs(), self.c, self.base_agent_last_reward, self.base_env.get_true_action())
         self.raw_state, self.base_agent_last_reward, done, info = self.base_env.step(self.base_policy)
@@ -177,7 +178,7 @@ class SegmentationEnv(gym.Env):
                     ).astype(np.uint8))
             attn = attn.resize(frame.size)
 
-            im = Image.blend(frame, attn, 0.5)
+            im = Image.blend(frame, attn, 0.6)
             d = ImageDraw.Draw(im)
             d.text((5, 5), f'Regime: {c.item()}', fill=(255, 0, 0))
             vid.append(F.pil_to_tensor(im))

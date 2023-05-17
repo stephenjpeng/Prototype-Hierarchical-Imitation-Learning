@@ -26,6 +26,7 @@ def parse_args(args=None):
 
     # train params
     parser.add_argument('--alpha', type=float, default=0.5, help="penalty for higher segments")
+    parser.add_argument('--base_lr', type=float, default=0.1, help="base agent learning rate")
     parser.add_argument('--gamma', type=float, default=0.99, help="discount factor")
     parser.add_argument('--max_ep_len', type=int, default=1000, help="Max frames in a segment")
 
@@ -174,7 +175,7 @@ def train(args):
         val_env = SegmentationEnv(val_offline_env, base_agent, vision_core, False, args)
 
     # optimizers
-    base_opt = torch.optim.Adam(base_agent.parameters(), lr=0.05)
+    base_opt = torch.optim.Adam(base_agent.parameters(), lr=args['base_lr'])
     detector_opt = torch.optim.Adam(detector.parameters(), lr=0.05)
     vision_opt = torch.optim.Adam(vision_core.parameters(), lr=0.05)
     b_scheduler = torch.optim.lr_scheduler.ExponentialLR(base_opt, gamma=0.97)

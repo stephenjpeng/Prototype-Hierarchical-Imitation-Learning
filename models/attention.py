@@ -329,7 +329,7 @@ class Agent(nn.Module):
         A = torch.matmul(K, Q.transpose(2, 1).unsqueeze(1))
         # (n, h, w, num_queries)
         A = spatial_softmax(A)
-        # (n, 1, 1, num_queries)
+        # (n, 1, num_queries, c_k + c_s)
         a = apply_alpha(A, V)
 
         # (n, (c_v + c_s) * num_queries + (c_k + c_s) * num_queries + 1 + 1)

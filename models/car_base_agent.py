@@ -42,5 +42,3 @@ class CarBaseAgents(AttentionAgents):
         self.policy = dist.Beta(alpha, beta)
 
         return self.policy
-
-
