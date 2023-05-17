@@ -67,19 +67,18 @@ def main(args=None):
         evaluate(args)
 
 
-def val_iteration(detector, base_agent, vision_core, val_offline_env, args):
+def val_iteration(detector, base_agent, vision_core, env, args):
     detector.eval()
     base_agent.eval()
     vision_core.eval()
     print("*** VALIDATING... ***")
     with torch.no_grad():
-        env = SegmentationEnv(val_offline_env, base_agent, vision_core, False, args)
 
         total_base_rewards = 0
         total_detector_rewards = 0
         total_critic_loss = 0
         total_actor_loss = 0
-        for episode in tqdm(range(val_offline_env.N)):
+        for episode in tqdm(range(env.base_env.N)):
             state = env.reset()
             detector.reset()
             done = False
@@ -117,10 +116,10 @@ def val_iteration(detector, base_agent, vision_core, val_offline_env, args):
             total_critic_loss += np.sum(np.power(values - y, 2))
             total_actor_loss += np.dot(adv, log_probs[:-1]) / detector.num_actions
 
-        base_reward = total_base_rewards / val_offline_env.N
-        detector_reward = total_detector_rewards / val_offline_env.N
-        critic_loss = total_critic_loss / val_offline_env.N
-        actor_loss = total_actor_loss / val_offline_env.N
+        base_reward = total_base_rewards / env.base_env.N
+        detector_reward = total_detector_rewards / env.base_env.N
+        critic_loss = total_critic_loss / env.base_env.N
+        actor_loss = total_actor_loss / env.base_env.N
 
     detector.train()
     base_agent.train()
@@ -170,7 +169,9 @@ def train(args):
     offline_env = OfflineEnv(train_dataset, args)
     env = SegmentationEnv(offline_env, base_agent, vision_core, False, args)
 
-    val_offline_env = OfflineEnv(val_dataset, args)
+    with torch.no_grad():
+        val_offline_env = OfflineEnv(val_dataset, args)
+        val_env = SegmentationEnv(val_offline_env, base_agent, vision_core, False, args)
 
     # optimizers
     base_opt = torch.optim.Adam(base_agent.parameters(), lr=0.05)
@@ -253,7 +254,7 @@ def train(args):
             # Validation
             if global_step % args['val_every'] == 0:
                 base_reward, detector_reward, val_critic_loss, val_actor_loss, sample_trajectory = val_iteration(
-                    detector, base_agent, vision_core, val_offline_env, args
+                    detector, base_agent, vision_core, val_env, args
                 )
                 if args['tensorboard']:
                     writer.add_scalar('Val/BaseReward', base_reward, global_step)
