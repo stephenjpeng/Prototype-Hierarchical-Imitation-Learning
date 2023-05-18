@@ -181,6 +181,7 @@ class VisionNetwork(nn.Module):
         # self.vision_lstm = MAConvLSTMCell(
         #     (12, 12), 64, args['hidden_size'], kernel_size=(3, 3), True
         # )
+        self.t = 0
 
     def reset(self):
         if self.vision_lstm is not None:
@@ -188,6 +189,10 @@ class VisionNetwork(nn.Module):
 
     def forward(self, X):
         X = X.transpose(1, 3) * 1./ 255.
+        X = X / 64. / 16.
+        self.t += 1
+        if self.t % 1000 == 0:
+            import pdb; pdb.set_trace()
         X = self.vision_cnn(X)
         if self.vision_lstm is not None:
             O, _ = self.vision_lstm(X)
@@ -216,7 +221,7 @@ class SpatialBasis:
     after being processed by the vision network.
     """
 
-    def __init__(self, height=27, width=20, channels=64):
+    def __init__(self, height=27, width=20, channels=64, uv=8):
         h, w, d = height, width, channels
 
         p_h = torch.mul(torch.arange(1, h+1).unsqueeze(1).float(), torch.ones(1, w).float()) * (np.pi / h)
@@ -225,7 +230,7 @@ class SpatialBasis:
         # NOTE: I didn't quite see how U,V = 4 made sense given that the authors form the spatial
         # basis by taking the outer product of the values. Still, I think what I have is aligned with what
         # they did, but I am less confident in this step.
-        U = V = 8 # size of U, V. 
+        U = V = uv # size of U, V. 
         u_basis = v_basis = torch.arange(1, U+1).unsqueeze(0).float()
         a = torch.mul(p_h.unsqueeze(2), u_basis)
         b = torch.mul(p_w.unsqueeze(2), v_basis)

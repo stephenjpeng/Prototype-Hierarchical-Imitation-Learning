@@ -9,6 +9,7 @@ Activation = Union[str, nn.Module]
 
 _str_to_activation = {
     'relu': nn.ReLU(),
+    'gelu': nn.GELU(),
     'tanh': nn.Tanh(),
     'leaky_relu': nn.LeakyReLU(),
     'sigmoid': nn.Sigmoid(),

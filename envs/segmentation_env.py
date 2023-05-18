@@ -146,8 +146,6 @@ class SegmentationEnv(gym.Env):
             self.base_agent_cum_reward = 0
 
         # update base agent reward
-        if self.n_episodes > 10:
-            import pdb; pdb.set_trace()
         self.base_policy = self.base_agent.act(self.get_obs(), self.c, self.base_agent_last_reward, self.base_env.get_true_action())
         self.raw_state, self.base_agent_last_reward, done, info = self.base_env.step(self.base_policy)
         self.state = None

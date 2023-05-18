@@ -39,7 +39,7 @@ class AttentionAgents(nn.Module):
         self.num_queries_per_agent = agent_params['num_queries_per_agent']
         self.num_queries = self.num_agents * self.num_queries_per_agent
 
-        self.spatial = SpatialBasis(self.h, self.w, self.c_s)
+        self.spatial = SpatialBasis(self.h, self.w, self.c_s, int(np.sqrt(self.c_s)))
 
         self.answer_mlp = ptu.build_mlp(
             # queries + answers + action + reward
@@ -48,7 +48,7 @@ class AttentionAgents(nn.Module):
             self.hidden_size,
             agent_params['a_mlp_n_layers'],
             agent_params['a_mlp_size'],              # hidden size
-            'relu',                                  # hidden activations
+            'leaky_relu',                                  # hidden activations
             'identity',                              # output activations
         )
 
@@ -61,17 +61,17 @@ class AttentionAgents(nn.Module):
             self.num_queries * (self.c_k + self.c_s), # N * (c_k + c_s) to be reshaped
             agent_params['q_mlp_n_layers'],
             agent_params['q_mlp_size'],               # hidden size
-            'relu',                                   # hidden activations
+            'leaky_relu',                                   # hidden activations
             'identity',                               # output activations
         )
 
         self.policy_heads = [
                 ptu.build_mlp(self.hidden_size, self.num_actions, 0, 0,
-                        'relu', agent_params['policy_act'])
+                        'leaky_relu', agent_params['policy_act'])
                 for _ in range(self.num_policy_heads)]
         for policy_head in self.policy_heads:
             policy_head.to(self.device)
-        self.values_head = ptu.build_mlp(self.hidden_size, self.num_actions, 0, 0, 'relu',
+        self.values_head = ptu.build_mlp(self.hidden_size, self.num_actions, 0, 0, 'leaky_relu',
                 agent_params['values_act'])
 
     def reset(self):
@@ -111,8 +111,8 @@ class AttentionAgents(nn.Module):
 
         # Answer
         A = torch.matmul(K, Q.transpose(2, 1).unsqueeze(1))  # (n, h, w, num_queries_per_agent)
-        A = A / torch.sqrt(c_k + c_s)
-        # TODO: Scale by sqrt(d)
+        # NOTE: Scaled by sqrt(d)
+        A = A / np.sqrt(self.c_k + self.c_s)
         # (n, h, w, num_queries_per_agent)
         A = spatial_softmax(A)
         self.A = A.clone().detach()

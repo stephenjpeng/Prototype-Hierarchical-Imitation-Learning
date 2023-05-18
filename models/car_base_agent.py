@@ -13,18 +13,18 @@ class CarBaseAgents(AttentionAgents):
                 'num_actions': 2,
                 'num_policy_heads': 2,      # estimate alpha and beta for the controls
                 'lstm_hidden_size': 128,    # paper: 256
-                'c_k': 8,                   # paper: 8
-                'c_v': 120,                 # paper: 120
-                'c_s': 64,                  # paper: 64
+                'c_k': 4,                   # paper: 8
+                'c_v': 28,                 # paper: 120
+                'c_s': 16,                  # paper: 64
                 'vision_h': 12,
                 'vision_w': 12,
                 'vision_ch': 3,
                 'num_agents': num_agents,
                 'num_queries_per_agent': 2, # paper: 4
                 'a_mlp_n_layers': 2,        # paper: 2
-                'a_mlp_size': 128,          # paper: 512 / 256
+                'a_mlp_size': 32,          # paper: 512 / 256
                 'q_mlp_n_layers': 2,        # paper: 3
-                'q_mlp_size': 128,          # paper: 256 / 128 / 72 x 4
+                'q_mlp_size': 32,          # paper: 256 / 128 / 72 x 4
                 'policy_act': 'softplus',   # paper: identity
                 'values_act': 'identity',   # paper: identity
         }

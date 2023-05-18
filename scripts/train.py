@@ -94,9 +94,11 @@ def val_iteration(detector, base_agent, vision_core, env, args):
             log_probs = []
             rewards = []
             base_loss = 0
+            T = 0
 
             # run a trajectory
             while not done:
+                T += 1
                 policy = detector.act(state, [[env.c]], env.get_valid_actions())
                 action = policy.mode
                 state, reward, done, info = env.step(action)
@@ -106,6 +108,8 @@ def val_iteration(detector, base_agent, vision_core, env, args):
                 values.append(detector.value.item())
                 rewards.append(reward.item() if torch.is_tensor(reward) else reward)
                 base_loss -= env.base_agent_last_reward.item()
+
+            base_loss += T
 
             # calculate loss
             actions = np.array(actions)
@@ -212,8 +216,11 @@ def train(args):
             rewards = []
             base_loss = 0
 
+            T = 0
+
             # run a trajectory
             while not done:
+                T += 1
                 policy = detector.act(state.clone().detach(), [[env.c]], env.get_valid_actions())
                 action = policy.sample()
                 state, reward, done, info = env.step(action)
@@ -225,6 +232,7 @@ def train(args):
                 base_loss -= env.base_agent_last_reward
 
             # update parameters
+            base_loss /= T
             rewards = torch.tensor(rewards, requires_grad=True).to(args['device'])
             actions = torch.tensor(actions)
             log_probs = torch.tensor(log_probs, requires_grad=True).float().to(args['device'])
