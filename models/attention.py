@@ -187,7 +187,7 @@ class VisionNetwork(nn.Module):
             self.vision_lstm.reset()
 
     def forward(self, X):
-        X = (2 * X.transpose(1, 3) / 255) - 1
+        X = X.transpose(1, 3) * 1./ 255.
         X = self.vision_cnn(X)
         if self.vision_lstm is not None:
             O, _ = self.vision_lstm(X)

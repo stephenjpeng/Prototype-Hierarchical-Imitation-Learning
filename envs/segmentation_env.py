@@ -74,6 +74,10 @@ class SegmentationEnv(gym.Env):
         self.base_env = base_env
         self.vision_core = vision_core
         self.base_agent = base_agent
+
+        self.base_agent.reset()
+        self.vision_core.reset()
+
         self.max_regimes = env_params['max_regimes']
         self.max_seg_len = env_params['max_seg_len']
         self.device = env_params['device']
@@ -92,11 +96,14 @@ class SegmentationEnv(gym.Env):
         self.ep_segments = []
         self.cs = []
         self.raw_state = self.base_env.reset()
+        self.state = None
         self.ep_states = [self.raw_state]
         self.ep_attns = []
 
     def get_obs(self):
-        return self.vision_core(torch.tensor(self.raw_state).to(self.device).unsqueeze(0))
+        if self.state is None:
+            self.state = self.vision_core(torch.tensor(self.raw_state).to(self.device).unsqueeze(0))
+        return self.state
 
     def get_valid_actions(self):
         # forced to choose a regime
@@ -121,6 +128,7 @@ class SegmentationEnv(gym.Env):
         self.base_agent.reset()
         self.vision_core.reset()
         self.raw_state = self.base_env.reset()
+        self.state = None
         self.ep_states = [self.raw_state]
         self.ep_attns = []
 
@@ -138,8 +146,11 @@ class SegmentationEnv(gym.Env):
             self.base_agent_cum_reward = 0
 
         # update base agent reward
+        if self.n_episodes > 10:
+            import pdb; pdb.set_trace()
         self.base_policy = self.base_agent.act(self.get_obs(), self.c, self.base_agent_last_reward, self.base_env.get_true_action())
         self.raw_state, self.base_agent_last_reward, done, info = self.base_env.step(self.base_policy)
+        self.state = None
 
         self.base_agent_cum_reward += self.base_agent_last_reward
         self.ep_attns.append(self.base_agent.A)

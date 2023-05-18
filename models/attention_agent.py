@@ -111,6 +111,8 @@ class AttentionAgents(nn.Module):
 
         # Answer
         A = torch.matmul(K, Q.transpose(2, 1).unsqueeze(1))  # (n, h, w, num_queries_per_agent)
+        A = A / torch.sqrt(c_k + c_s)
+        # TODO: Scale by sqrt(d)
         # (n, h, w, num_queries_per_agent)
         A = spatial_softmax(A)
         self.A = A.clone().detach()
