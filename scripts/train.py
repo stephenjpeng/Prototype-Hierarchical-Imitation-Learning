@@ -11,6 +11,7 @@ from envs.segmentation_env import OfflineEnv, SegmentationEnv
 from models.attention import VisionNetwork
 from models.car_base_agent import CarBaseAgents
 from models.car_detector_agent import CarDetectorAgent
+from models.conv_vision_core import ConvVisionCore
 
 
 def parse_args(args=None):
@@ -27,11 +28,15 @@ def parse_args(args=None):
     # vision params
     parser.add_argument('--vision_lstm', action='store_true', help='use a vision lstm')
     parser.add_argument('--no_vision_lstm', dest='vision_lstm', action='store_false', help='don\'t use a vision lstm')
+    parser.add_argument('--vision_core', type=str, default="complex", help='vision core type')
 
+    # base agent params
+    parser.add_argument('--spatial_basis_size', type=int, default=8, help="u / v for the spatial basis (sqrt of basis # channels)")
 
     # train params
     parser.add_argument('--alpha', type=float, default=0.5, help="penalty for higher segments")
-    parser.add_argument('--base_lr', type=float, default=0.01, help="base agent learning rate")
+    parser.add_argument('--lr', type=float, default=0.01, help="base agent learning rate")
+    parser.add_argument('--update_every', type=int, default=5, help="episodes before update")
     parser.add_argument('--gamma', type=float, default=0.99, help="discount factor")
     parser.add_argument('--max_ep_len', type=int, default=1000, help="Max frames in a segment")
 
@@ -80,7 +85,7 @@ def val_iteration(detector, base_agent, vision_core, env, args):
     print("*** VALIDATING... ***")
     with torch.no_grad():
 
-        total_base_rewards = 0
+        total_base_loss = 0
         total_detector_rewards = 0
         total_critic_loss = 0
         total_actor_loss = 0
@@ -109,8 +114,6 @@ def val_iteration(detector, base_agent, vision_core, env, args):
                 rewards.append(reward.item() if torch.is_tensor(reward) else reward)
                 base_loss -= env.base_agent_last_reward.item()
 
-            base_loss += T
-
             # calculate loss
             actions = np.array(actions)
             rewards = np.array(rewards)
@@ -121,12 +124,12 @@ def val_iteration(detector, base_agent, vision_core, env, args):
             y = rewards + args['gamma'] * values
             adv = rewards[:-1] + args['gamma'] * values[1:] - values[:-1]
 
-            total_base_rewards -= base_loss
+            total_base_loss += base_loss / T
             total_detector_rewards += np.sum(rewards)
             total_critic_loss += np.sum(np.power(values - y, 2))
             total_actor_loss += np.dot(adv, log_probs[:-1]) / detector.num_actions
 
-        base_reward = total_base_rewards / env.base_env.N
+        base_loss = total_base_loss / env.base_env.N
         detector_reward = total_detector_rewards / env.base_env.N
         critic_loss = total_critic_loss / env.base_env.N
         actor_loss = total_actor_loss / env.base_env.N
@@ -134,7 +137,7 @@ def val_iteration(detector, base_agent, vision_core, env, args):
     detector.train()
     base_agent.train()
     vision_core.train()
-    return base_reward, detector_reward, critic_loss, actor_loss, env.tensor_of_trajectory()
+    return base_loss, detector_reward, critic_loss, actor_loss, env.tensor_of_trajectory()
 
 
 def train(args):
@@ -165,12 +168,18 @@ def train(args):
     #### Training
     model_name = (f'{args["env"]}_' +
                  f'{args["max_regimes"]}regimes_' +
-                 f'{args["n_layers"],args["hidden_size"]}detector' +
+                 f'{args["n_layers"],args["hidden_size"]}detector_' +
+                 f'{args["vision_core"]}_core_' +
+                 f'alpha{args["alpha"]}_' +
+                 f'spatial{args["spatial_basis_size"]}_' +
                  f'{args["tensorboard_suffix"]}_')
     # create models
     base_agent = CarBaseAgents(args['max_regimes'], args={'device': args['device']})
     detector   = CarDetectorAgent(args)
-    vision_core = VisionNetwork(args)
+    if args['vision_core'] == "basic":
+        vision_core = ConvVisionCore(args)
+    else:
+        vision_core = VisionNetwork(args)
 
     base_agent.to(args['device'])
     detector.to(args['device'])
@@ -184,9 +193,9 @@ def train(args):
         val_env = SegmentationEnv(val_offline_env, base_agent, vision_core, False, args)
 
     # optimizers
-    base_opt = torch.optim.Adam(base_agent.parameters(), lr=args['base_lr'])
-    detector_opt = torch.optim.Adam(detector.parameters(), lr=0.05)
-    vision_opt = torch.optim.Adam(vision_core.parameters(), lr=0.05)
+    base_opt = torch.optim.Adam(base_agent.parameters(), lr=args['lr'])
+    detector_opt = torch.optim.Adam(detector.parameters(), lr=args['lr'])
+    vision_opt = torch.optim.Adam(vision_core.parameters(), lr=args['lr'])
     b_scheduler = torch.optim.lr_scheduler.ExponentialLR(base_opt, gamma=0.97)
     d_scheduler = torch.optim.lr_scheduler.ExponentialLR(detector_opt, gamma=0.97)
     v_scheduler = torch.optim.lr_scheduler.ExponentialLR(vision_opt, gamma=0.97)
@@ -206,21 +215,24 @@ def train(args):
             detector.reset()
             done = False
 
-            detector.zero_grad()
-            base_agent.zero_grad()
-            vision_core.zero_grad()
+            ## update base agent and vision
+            if (global_step - 1) % args['update_every'] == 0:
+                base_agent.zero_grad()
+                vision_core.zero_grad()
+                base_loss = 0
 
-            actions = []
-            values = []
-            log_probs = []
-            rewards = []
-            base_loss = 0
+                detector.zero_grad()
 
-            T = 0
+                actions = []
+                values = []
+                log_probs = []
+                rewards = []
+                T = 0
 
             # run a trajectory
             while not done:
                 T += 1
+
                 policy = detector.act(state.clone().detach(), [[env.c]], env.get_valid_actions())
                 action = policy.sample()
                 state, reward, done, info = env.step(action)
@@ -231,34 +243,37 @@ def train(args):
                 rewards.append(reward)
                 base_loss -= env.base_agent_last_reward
 
-            # update parameters
-            base_loss /= T
-            rewards = torch.tensor(rewards, requires_grad=True).to(args['device'])
-            actions = torch.tensor(actions)
-            log_probs = torch.tensor(log_probs, requires_grad=True).float().to(args['device'])
-            values = torch.tensor(values, requires_grad=True).to(args['device'])
 
-            ## update base agent and vision
-            base_loss.backward()
-            base_opt.step()
-            vision_opt.step()
+            if global_step % args['update_every'] == 0:
+                # update parameters
+                ## update base agent and vision
+                rewards = torch.tensor(rewards, requires_grad=True).to(args['device'])
+                actions = torch.tensor(actions)
+                log_probs = torch.tensor(log_probs, requires_grad=True).float().to(args['device'])
+                values = torch.tensor(values, requires_grad=True).to(args['device'])
 
-            ## update detector and vision core with AC
-            # with torch.no_grad():
-            y = rewards + args['gamma'] * values
-            adv = rewards[:-1] + args['gamma'] * values[1:] - values[:-1]
+                base_loss /= T
+                base_loss.backward()
+                base_opt.step()
 
-            critic_loss = torch.pow(values - y, 2).sum()
-            actor_loss = torch.dot(adv, log_probs[:-1].float()) / detector.num_actions
-            detector_loss = critic_loss + actor_loss
 
-            detector_loss.backward()
-            detector_opt.step()
+                ## update detector and vision core with AC
+                # with torch.no_grad():
+                y = rewards + args['gamma'] * values
+                adv = rewards[:-1] + args['gamma'] * values[1:] - values[:-1]
+
+                critic_loss = torch.pow(values - y, 2).sum()
+                actor_loss = torch.dot(adv, log_probs[:-1].float()) / detector.num_actions
+                detector_loss = critic_loss + actor_loss
+
+                detector_loss.backward()
+                detector_opt.step()
+                vision_opt.step()
 
             # log training
             if global_step % args['log_every'] == 0 and args['tensorboard']:
                 sample_trajectory = env.tensor_of_trajectory()
-                writer.add_scalar('Train/BaseReward', -base_loss.item(), global_step)
+                writer.add_scalar('Train/BaseLoss', base_loss.item(), global_step)
                 writer.add_scalar('Train/DetectorReward', rewards.sum().item(), global_step)
                 writer.add_scalar('Train/CriticLoss', critic_loss.item(), global_step)
                 writer.add_scalar('Train/ActorLoss', actor_loss.item(), global_step)
@@ -267,11 +282,11 @@ def train(args):
 
             # Validation
             if global_step % args['val_every'] == 0:
-                base_reward, detector_reward, val_critic_loss, val_actor_loss, sample_trajectory = val_iteration(
+                base_loss, detector_reward, val_critic_loss, val_actor_loss, sample_trajectory = val_iteration(
                     detector, base_agent, vision_core, val_env, args
                 )
                 if args['tensorboard']:
-                    writer.add_scalar('Val/BaseReward', base_reward, global_step)
+                    writer.add_scalar('Val/BaseLoss', base_loss, global_step)
                     writer.add_scalar('Val/DetectorReward', detector_reward, global_step)
                     writer.add_scalar('Val/CriticLoss', val_critic_loss, global_step)
                     writer.add_scalar('Val/ActorLoss', val_actor_loss, global_step)

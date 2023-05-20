@@ -2,8 +2,7 @@
 import torch.nn as nn
 from torch.autograd import Variable
 import torch
-from utils import weights_init
-
+# from utils import weights_init
 
 class MAConvLSTMCell(nn.Module):
 
@@ -40,14 +39,20 @@ class MAConvLSTMCell(nn.Module):
                               kernel_size=self.kernel_size,
                               padding=self.padding,
                               bias=self.bias)
+        nn.init.kaiming_uniform_(self.conv.weight.data)
 
-        self.apply(weights_init)
-        relu_gain = nn.init.calculate_gain('relu')
-        self.conv.weight.data.mul_(relu_gain)
+        # self.apply(weights_init)
+        # relu_gain = nn.init.calculate_gain('relu')
+        # self.conv.weight.data.mul_(relu_gain)
 
-    def forward(self, input_tensor, cur_state):
+        self.cur_state = None
+
+    def forward(self, input_tensor):
         
-        h_cur, c_cur = cur_state
+        if self.cur_state is None:
+            self.cur_state = self.init_hidden(1)
+
+        h_cur, c_cur = self.cur_state
         
         combined = torch.cat([input_tensor, h_cur], dim=1)  # concatenate along channel axis
         
@@ -60,12 +65,17 @@ class MAConvLSTMCell(nn.Module):
 
         c_next = f * c_cur + i * g
         h_next = o * torch.tanh(c_next)
+
+        self.cur_state = (h_next, c_next)
         
         return h_next, c_next
 
+    def reset(self):
+        self.cur_state = None
+
     def init_hidden(self, batch_size):
-        return (Variable(torch.zeros(batch_size, self.hidden_dim, self.height, self.width)).cuda(),
-                Variable(torch.zeros(batch_size, self.hidden_dim, self.height, self.width)).cuda())
+        return (Variable(torch.zeros(batch_size, self.hidden_dim, self.height, self.width)),
+                Variable(torch.zeros(batch_size, self.hidden_dim, self.height, self.width)))
 
 
 class ConvLSTM(nn.Module):

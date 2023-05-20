@@ -140,8 +140,8 @@ class AttentionAgents(nn.Module):
 
         # Outputs
         # (n, num_actions)
-        logits = (policy_head(output) for policy_head in self.policy_heads)
+        action = [policy_head(output) for policy_head in self.policy_heads]
         # (n, num_actions)
         values = self.values_head(output)
-        return logits, values
+        return action, values
 

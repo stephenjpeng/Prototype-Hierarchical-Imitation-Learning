@@ -5,7 +5,7 @@ import torch.nn.functional as F
 from torch import nn
 
 
-# from models.convLSTM import MAConvLSTMCell
+from models.convLSTM import MAConvLSTMCell
 
 class ConvLSTMCell(nn.Module):
     def __init__(self, input_channels, hidden_channels, kernel_size):
@@ -173,15 +173,17 @@ class VisionNetwork(nn.Module):
         )
 
         if args['vision_lstm']:
-            self.vision_lstm = ConvLSTMCell(
-                input_channels=64, hidden_channels=args['hidden_size'], kernel_size=3
+            # self.vision_lstm = ConvLSTMCell(
+            #     input_channels=64, hidden_channels=args['hidden_size'], kernel_size=3
+            # )
+            self.vision_lstm = MAConvLSTMCell(
+                (12, 12), 64, args['hidden_size'], kernel_size=(3, 3), bias=True
             )
         else:
             self.vision_lstm = None
-        # self.vision_lstm = MAConvLSTMCell(
-        #     (12, 12), 64, args['hidden_size'], kernel_size=(3, 3), True
-        # )
-        self.t = 0
+
+        for layer in self.vision_cnn:
+            nn.init.kaiming_uniform_(layer.weight.data)
 
     def reset(self):
         if self.vision_lstm is not None:
@@ -189,10 +191,7 @@ class VisionNetwork(nn.Module):
 
     def forward(self, X):
         X = X.transpose(1, 3) * 1./ 255.
-        X = X / 64. / 16.
-        self.t += 1
-        if self.t % 1000 == 0:
-            import pdb; pdb.set_trace()
+        # X = X / 64. / 16.
         X = self.vision_cnn(X)
         if self.vision_lstm is not None:
             O, _ = self.vision_lstm(X)

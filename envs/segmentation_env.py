@@ -52,8 +52,10 @@ class OfflineEnv(gym.Env):
             self.rng.shuffle(self.D)
         return self.get_observation()
 
-    def step(self, policy):
-        reward = policy.log_prob(torch.tensor(self.get_true_action()).to(self.device)).sum()
+    def step(self, action):
+        reward = -torch.nn.functional.mse_loss(
+            action, torch.tensor(self.get_true_action()).to(self.device).unsqueeze(0)
+        )
 
         self.t += 1
         done = (self.t > self.max_ep_len) or (self.t == len(self.D[self.n_episodes % self.N][0]))
