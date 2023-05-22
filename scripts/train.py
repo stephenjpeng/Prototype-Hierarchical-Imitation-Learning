@@ -32,6 +32,7 @@ def parse_args(args=None):
 
     # base agent params
     parser.add_argument('--spatial_basis_size', type=int, default=8, help="u / v for the spatial basis (sqrt of basis # channels)")
+    parser.add_argument('--base_mlp_size', type=int, default=32, help="base agent mlp (a and q) size")
 
     # train params
     parser.add_argument('--alpha', type=float, default=0.5, help="penalty for higher segments")
@@ -172,9 +173,10 @@ def train(args):
                  f'{args["vision_core"]}_core_' +
                  f'alpha{args["alpha"]}_' +
                  f'spatial{args["spatial_basis_size"]}_' +
+                 f'{args["base_mlp_size"]}basemlpsize_' +
                  f'{args["tensorboard_suffix"]}_')
     # create models
-    base_agent = CarBaseAgents(args['max_regimes'], args={'device': args['device']})
+    base_agent = CarBaseAgents(args['max_regimes'], args['base_mlp_size'], args={'device': args['device']})
     detector   = CarDetectorAgent(args)
     if args['vision_core'] == "basic":
         vision_core = ConvVisionCore(args)
@@ -200,7 +202,7 @@ def train(args):
     d_scheduler = torch.optim.lr_scheduler.ExponentialLR(detector_opt, gamma=0.97)
     v_scheduler = torch.optim.lr_scheduler.ExponentialLR(vision_opt, gamma=0.97)
 
-    best_reward = float('inf')
+    best_reward = -float('inf')
 
     if args['tensorboard']:
         from tensorboardX import SummaryWriter
