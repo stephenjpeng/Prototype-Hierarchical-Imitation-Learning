@@ -291,9 +291,9 @@ def train(args):
                 # y = rewards[:-1] + args['gamma'] * values[1:]
                 # adv = rewards[:-1] + args['gamma'] * values[1:] - values[:-1]
                 # adv = ys - values
-                critic_loss = torch.pow(adv, 2).mean()
+                critic_loss = torch.pow(advs, 2).mean()
                 # check negative here?
-                actor_loss = torch.dot(adv, log_probs.float()) / detector.num_actions
+                actor_loss = torch.dot(advs, log_probs.float()) / detector.num_actions
                 detector_loss = critic_loss + actor_loss
 
                 detector_loss.backward()

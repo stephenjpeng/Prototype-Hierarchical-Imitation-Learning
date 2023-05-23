@@ -13,8 +13,8 @@ class CarBaseAgents(AttentionAgents):
                 'num_actions': 2,
                 'num_policy_heads': 1,      # estimate controls straight up
                 'lstm_hidden_size': 128,    # paper: 256
-                'c_k': 4,                   # paper: 8
-                'c_v': 60,                 # paper: 120
+                'c_k': 8,                   # paper: 8
+                'c_v': 56,                 # paper: 120
                 'c_s': 16,                  # paper: 64
                 'vision_h': 12,
                 'vision_w': 12,
