@@ -100,6 +100,7 @@ class SegmentationEnv(gym.Env):
         self.raw_state = self.base_env.reset()
         self.state = None
         self.ep_states = [self.raw_state]
+        self.ep_rewards = []
         self.ep_attns = []
 
     def get_obs(self):
@@ -132,6 +133,7 @@ class SegmentationEnv(gym.Env):
         self.raw_state = self.base_env.reset()
         self.state = None
         self.ep_states = [self.raw_state]
+        self.ep_rewards = []
         self.ep_attns = []
 
         return self.get_obs()
@@ -167,6 +169,8 @@ class SegmentationEnv(gym.Env):
                 self.base_agent_cum_reward = 0
         else:
             next_obs = self.get_obs()
+
+        self.ep_rewards.append(reward)
 
         return next_obs, reward, done, info
 
