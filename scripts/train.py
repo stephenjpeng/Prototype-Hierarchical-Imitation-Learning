@@ -22,7 +22,7 @@ def parse_args(args=None):
     parser.add_argument('--mode', type=str, default="train")
     parser.add_argument('--env', type=str, default="car")
 
-    parser.add_argument('--train_X_file', type=str, default="data/obs_train.pkl")
+    parser.add_argument('--train_X_file', type=str, default="data/obs_train_cropped.pkl")
     parser.add_argument('--train_y_file', type=str, default="data/real_actions.pkl")
 
     # vision params
@@ -59,6 +59,7 @@ def parse_args(args=None):
     parser.add_argument('--val_every', type=int, default=50)
 
     parser.add_argument('--no_shuffle', dest='shuffle', action='store_false', help="Don't shuffle offline data")
+    # parser.add_argument('--no_crop', dest='crop_info', action='store_false', help="crop the state")
     parser.add_argument('--seed', type=int, default=123)
     args = parser.parse_args(args=args)
 

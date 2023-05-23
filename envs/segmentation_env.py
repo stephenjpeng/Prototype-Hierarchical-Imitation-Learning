@@ -1,12 +1,14 @@
 import gym
 import numpy as np
 import matplotlib.pyplot as plt
+import scipy.ndimage as ndimage
 import torch
 import torchvision.transforms.functional as F
 
 
 from PIL import Image
 from PIL import ImageDraw
+from skimage.transform import resize
 
 
 class OfflineEnv(gym.Env):
@@ -21,6 +23,7 @@ class OfflineEnv(gym.Env):
         self.D = D
         self.max_ep_len = env_params['max_ep_len']
         self.shuffle = env_params['shuffle']
+        self.crop_info = env_params['crop_info']
         self.rng = np.random.default_rng(env_params['seed'])
         if self.shuffle:
             self.rng.shuffle(self.D)
@@ -32,7 +35,11 @@ class OfflineEnv(gym.Env):
         self.n_episodes = 0
 
     def get_observation(self):
-        return self.D[self.n_episodes % self.N][0][self.t]
+        state = self.D[self.n_episodes % self.N][0][self.t]
+        # if self.crop_info:
+        #     orig_shape = state.shape
+        #     state = resize(state[:-15, :, :], orig_shape)
+        return state
 
     def get_true_action(self):
         labeled_action = self.D[self.n_episodes % self.N][1][self.t]
@@ -105,7 +112,7 @@ class SegmentationEnv(gym.Env):
 
     def get_obs(self):
         if self.state is None:
-            self.state = self.vision_core(torch.tensor(self.raw_state).to(self.device).unsqueeze(0))
+            self.state = self.vision_core(torch.tensor(self.raw_state).float().to(self.device).unsqueeze(0))
         return self.state
 
     def get_valid_actions(self):
