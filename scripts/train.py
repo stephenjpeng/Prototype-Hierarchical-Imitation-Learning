@@ -22,8 +22,8 @@ def parse_args(args=None):
     parser.add_argument('--mode', type=str, default="train")
     parser.add_argument('--env', type=str, default="car")
 
-    parser.add_argument('--train_X_file', type=str, default="data/obs_train_cropped.pkl")
-    parser.add_argument('--train_y_file', type=str, default="data/real_actions.pkl")
+    parser.add_argument('--train_X_file', type=str, default="data/obs_train_trimmed.pkl")
+    parser.add_argument('--train_y_file', type=str, default="data/real_actions_trimmed.pkl")
 
     # vision params
     parser.add_argument('--vision_lstm', action='store_true', help='use a vision lstm')
@@ -292,6 +292,7 @@ def train(args):
                 base_loss /= T
                 base_loss.backward()
                 base_opt.step()
+                vision_opt.step()
 
 
                 ## update detector and vision core with AC
@@ -306,7 +307,6 @@ def train(args):
 
                 detector_loss.backward()
                 detector_opt.step()
-                vision_opt.step()
 
             # log training
             if global_step % args['log_every'] == 0 and args['tensorboard']:

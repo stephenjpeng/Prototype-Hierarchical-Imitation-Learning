@@ -34,6 +34,7 @@ class OfflineEnv(gym.Env):
         self.total_reward = 0
         self.n_episodes = 0
 
+
     def get_observation(self):
         state = self.D[self.n_episodes % self.N][0][self.t]
         # if self.crop_info:
@@ -191,7 +192,7 @@ class SegmentationEnv(gym.Env):
             # adjust attn to RGB
             attn = attn.squeeze(0).permute(2, 0, 1)
             for i in range(self.base_agent.num_queries_per_agent):
-                attn[i] /= attn[i].max()
+                attn[i] = (attn[i] - attn[i].min()) / (attn[i].max() - attn[i].min())
             attn = torch.hstack([*attn]).unsqueeze(0)
             attn = Image.fromarray(
                     (plt.get_cmap('jet')(

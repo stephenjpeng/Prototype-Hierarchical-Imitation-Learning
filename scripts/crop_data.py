@@ -11,7 +11,7 @@ orig_shape = states[0][0].shape
 for ep in tqdm(states):
     cropped_ep = []
     for frame in tqdm(ep):
-        cropped_ep.append(resize(frame[:-15, :, :], orig_shape))
+        cropped_ep.append((255 * resize(frame[:-15, :, :], orig_shape)).astype('uint8'))
 
     cropped.append(cropped_ep)
 
