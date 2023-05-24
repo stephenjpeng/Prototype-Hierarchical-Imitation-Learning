@@ -45,9 +45,9 @@ class OfflineEnv(gym.Env):
     def get_true_action(self):
         labeled_action = self.D[self.n_episodes % self.N][1][self.t]
 
-        # map [steer, accel, brake] back into [steer, speed] of [0, 1] range
-        steering = (labeled_action[0] + 1) / 2
-        speed = (labeled_action[1] - labeled_action[2] + 1) / 2
+        # map [steer, accel, brake] back into [steer, speed] of [-1, 1] range
+        steering = (labeled_action[0])
+        speed = (labeled_action[1] - labeled_action[2])
         return [steering, speed]
 
     def reset(self):

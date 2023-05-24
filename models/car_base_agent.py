@@ -26,7 +26,7 @@ class CarBaseAgents(AttentionAgents):
                 'a_mlp_size': base_mlp_size, # 32,          # paper: 512 / 256
                 'q_mlp_n_layers': 2,        # paper: 3
                 'q_mlp_size': base_mlp_size, # 32,          # paper: 256 / 128 / 72 x 4
-                'policy_act': 'sigmoid',   # paper: identity
+                'policy_act': 'tanh',   # paper: identity
                 'values_act': 'identity',   # paper: identity
         }
         self.agent_params.update(args)

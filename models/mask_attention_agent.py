@@ -38,7 +38,7 @@ class MaskAttentionAgents(nn.Module):
         self.a_conv = nn.Conv2d(self.hidden_size, self.hidden_size // 2, 1, stride=1, padding=0)
 
         self.actor_linear = nn.Linear(self.hidden_size * 12 * 6, self.num_actions)
-        self.actor_activation = nn.Sigmoid()
+        self.actor_activation = nn.Tanh()
 
         self.apply(ptu.weights_init)
         relu_gain = nn.init.calculate_gain('relu')

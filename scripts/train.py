@@ -4,6 +4,7 @@ import time
 import torch
 
 from argparse import ArgumentParser
+from PIL import Image
 from torch.utils.data import TensorDataset, DataLoader, random_split
 from tqdm import tqdm
 
@@ -24,6 +25,7 @@ def parse_args(args=None):
 
     parser.add_argument('--train_X_file', type=str, default="data/obs_train_trimmed.pkl")
     parser.add_argument('--train_y_file', type=str, default="data/real_actions_trimmed.pkl")
+    parser.add_argument('--mean_image_file', type=str, default="data/mean_image.png")
 
     # vision params
     parser.add_argument('--vision_lstm', action='store_true', help='use a vision lstm')
@@ -72,6 +74,12 @@ def parse_args(args=None):
     args.device = 'cuda' if args.cuda else 'cpu'
 
     args = vars(args)
+
+    try:
+        args['mean_image'] = torch.tensor(np.asarray(Image.open(args['mean_image_file']))).to(args['device'])
+    except:
+        args['mean_image'] = None
+
     return args
 
 
@@ -169,6 +177,15 @@ def train(args):
     split_pt = 9 * N // 10
     train_dataset = dataset[:split_pt]
     val_dataset   = dataset[split_pt:]
+
+    ## Calculate mean image
+    if args['mean_image'] is None:
+        images = np.array([
+            frame for ep in train_dataset for frame in ep[0]
+            ])
+        args['mean_image'] = np.mean(images, axis=0).astype('uint8')
+        Image.fromarray(args['mean_image']).save(args['mean_image_file'])
+        args['mean_image'] = torch.tensor(args['mean_image']).to(args['device'])
 
     #### Training
     model_name = (f'{args["env"]}_' +

@@ -172,6 +172,8 @@ class VisionNetwork(nn.Module):
             ),
         )
 
+        self.mean_image = args['mean_image']
+
         if args['vision_lstm']:
             # self.vision_lstm = ConvLSTMCell(
             #     input_channels=64, hidden_channels=args['hidden_size'], kernel_size=3
@@ -190,7 +192,7 @@ class VisionNetwork(nn.Module):
             self.vision_lstm.reset()
 
     def forward(self, X):
-        X = X.transpose(1, 3) * 1./ 255.
+        X = (X - self.mean_image).transpose(1, 3) * 1./ 255.
         # X = X / 64. / 16.
         X = self.vision_cnn(X)
         if self.vision_lstm is not None:
