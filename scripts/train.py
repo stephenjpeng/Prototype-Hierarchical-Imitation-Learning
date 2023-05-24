@@ -9,7 +9,7 @@ from tqdm import tqdm
 
 from envs.segmentation_env import OfflineEnv, SegmentationEnv
 from models.attention import VisionNetwork
-from models.car_base_agent import CarBaseAgents
+from models.car_base_agent import CarBaseAgents, BasicCarBaseAgents
 from models.car_detector_agent import CarDetectorAgent
 from models.conv_vision_core import ConvVisionCore
 
@@ -33,6 +33,9 @@ def parse_args(args=None):
     # base agent params
     parser.add_argument('--spatial_basis_size', type=int, default=8, help="u / v for the spatial basis (sqrt of basis # channels)")
     parser.add_argument('--base_mlp_size', type=int, default=32, help="base agent mlp (a and q) size")
+    parser.add_argument('--c_k', type=int, default=8, help="size of keys")
+    parser.add_argument('--num_queries_per_agent', type=int, default=2, help="# of queries per agent")
+    parser.add_argument('--base_agent', type=str, default="complex", help="complex or basic base agent")
 
     # train params
     parser.add_argument('--alpha', type=float, default=0.5, help="penalty for higher segments")
@@ -169,15 +172,19 @@ def train(args):
 
     #### Training
     model_name = (f'{args["env"]}_' +
-                 f'{args["max_regimes"]}regimes_' +
+                 f'{args["max_regimes"],args["base_agent"]}agents_' +
                  f'{args["n_layers"],args["hidden_size"]}detector_' +
                  f'{args["vision_core"]}_core_' +
                  f'alpha{args["alpha"]}_' +
                  f'spatial{args["spatial_basis_size"]}_' +
                  f'{args["base_mlp_size"]}basemlpsize_' +
+                 f'{args["c_k"]}ck_' +
                  f'{args["tensorboard_suffix"]}_')
     # create models
-    base_agent = CarBaseAgents(args['max_regimes'], args['base_mlp_size'], args={'device': args['device']})
+    if args["base_agent"] == "basic":
+        base_agent = BasicCarBaseAgents(args['max_regimes'], args['base_mlp_size'], args=args)
+    else:
+        base_agent = CarBaseAgents(args['max_regimes'], args['base_mlp_size'], args=args)
     detector   = CarDetectorAgent(args)
     if args['vision_core'] == "basic":
         vision_core = ConvVisionCore(args)

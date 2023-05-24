@@ -23,7 +23,7 @@ class OfflineEnv(gym.Env):
         self.D = D
         self.max_ep_len = env_params['max_ep_len']
         self.shuffle = env_params['shuffle']
-        self.crop_info = env_params['crop_info']
+        # self.crop_info = env_params['crop_info']
         self.rng = np.random.default_rng(env_params['seed'])
         if self.shuffle:
             self.rng.shuffle(self.D)
