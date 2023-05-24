@@ -196,6 +196,7 @@ def train(args):
                  f'spatial{args["spatial_basis_size"]}_' +
                  f'{args["base_mlp_size"]}basemlpsize_' +
                  f'{args["c_k"]}ck_' +
+                 f'{args["lr"]}lr_' +
                  f'{args["tensorboard_suffix"]}_')
     # create models
     if args["base_agent"] == "basic":
