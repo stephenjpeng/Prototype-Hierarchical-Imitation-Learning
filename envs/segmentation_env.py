@@ -165,7 +165,7 @@ class SegmentationEnv(gym.Env):
         self.base_agent_cum_reward += self.base_agent_last_reward
         self.ep_attns.append(self.base_agent.A)
         self.ep_states.append(self.raw_state)
-        self.cs.append(self.c)
+        self.cs.append(self.c.item())
 
         if done:
             next_obs = None
@@ -202,7 +202,7 @@ class SegmentationEnv(gym.Env):
 
             im = Image.blend(frame, attn, 0.6)
             d = ImageDraw.Draw(im)
-            d.text((5, 5), f'Regime: {c.item()}', fill=(255, 0, 0))
+            d.text((5, 5), f'Regime: {c}', fill=(255, 0, 0))
             vid.append(F.pil_to_tensor(im))
         vid = torch.stack(vid)  # t, h, w, c
         return vid.unsqueeze(0)

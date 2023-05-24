@@ -150,7 +150,7 @@ def val_iteration(detector, base_agent, vision_core, env, args):
     detector.train()
     base_agent.train()
     vision_core.train()
-    return base_loss, detector_reward, critic_loss, actor_loss, env.tensor_of_trajectory()
+    return base_loss, detector_reward, critic_loss, actor_loss, env.tensor_of_trajectory(), env.cs
 
 
 def train(args):
@@ -337,7 +337,7 @@ def train(args):
 
             # Validation
             if global_step % args['val_every'] == 0:
-                base_loss, detector_reward, val_critic_loss, val_actor_loss, sample_trajectory = val_iteration(
+                base_loss, detector_reward, val_critic_loss, val_actor_loss, sample_trajectory, histogram = val_iteration(
                     detector, base_agent, vision_core, val_env, args
                 )
                 if args['tensorboard']:
@@ -346,6 +346,7 @@ def train(args):
                     writer.add_scalar('Val/CriticLoss', val_critic_loss, global_step)
                     writer.add_scalar('Val/ActorLoss', val_actor_loss, global_step)
                     writer.add_video('Val/SampleTrajectory', sample_trajectory, global_step)
+                    writer.add_histogram('Val/RegimeSample', histogram, global_step)
 
                 # save model if best so far
                 if detector_reward > best_reward:
