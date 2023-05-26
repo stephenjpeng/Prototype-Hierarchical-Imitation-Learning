@@ -35,6 +35,11 @@ class CarBaseAgents(AttentionAgents):
         self.values = None
         self.action = None
 
+    def reset(self):
+        super(CarBaseAgents, self).reset()
+        self.values = None
+        self.action = None
+
     def act(self, obs, c, r_prev=None, a_prev=None):
         action, values = self.forward(obs, c, r_prev, a_prev)
         self.values = values
@@ -57,6 +62,11 @@ class BasicCarBaseAgents(MaskAttentionAgents):
         self.agent_params.update(args)
         super(BasicCarBaseAgents, self).__init__(self.agent_params)
 
+        self.values = None
+        self.action = None
+
+    def reset(self):
+        super(BasicCarBaseAgents, self).reset()
         self.values = None
         self.action = None
 
