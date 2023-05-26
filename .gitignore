@@ -28,3 +28,4 @@ tags
 *.pkl
 *.pth
 runs/
+runs.old/

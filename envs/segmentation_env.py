@@ -6,6 +6,8 @@ import torch
 import torchvision.transforms.functional as F
 
 
+from copy import deepcopy
+from gym.spaces import Box
 from PIL import Image
 from PIL import ImageDraw
 from skimage.transform import resize
@@ -70,6 +72,90 @@ class OfflineEnv(gym.Env):
         next_obs = None if done else self.get_observation()
 
         return next_obs, reward, done, {}
+
+
+class OnlineEnv(gym.Wrapper):
+    def __init__(self, frame_skip=0, seed=2023):
+        self.seed = seed
+        self.env = gym.make("CarRacing-v1")
+        super().__init__(self.env)
+        self.env.seed(seed)
+
+        self.action_space = Box(low=0, high=1, shape=(2,))
+        self.observation_space = Box(low=0, high=1, shape=(96, 96))
+
+        self.t = 0
+        self.last_reward_step = 0
+        self.total_reward = 0
+        self.n_episodes = 0
+        self.processed_frame = None
+
+        self.frame_skip = frame_skip
+
+
+    def preprocess(self, original_action):
+        action = np.zeros(3)
+        original_action = original_action.squeeze(0).detach().cpu().numpy()
+
+        action[0] = original_action[0]
+
+        # Separate acceleration and braking
+        action[1] = max(0, original_action[1])
+        action[2] = max(0, -original_action[1])
+
+        return action
+
+    def postprocess(self, original_observation):
+        # crop and resize
+        observation = (255 * resize(original_observation[:-15, :, :], (96, 96))).astype('uint8')
+        return observation
+
+    def shape_reward(self, reward):
+        return np.clip(reward, -1, 1)
+
+    def get_observation(self):
+        if self.processed_frame is None:
+            self.processed_frame = self.postprocess(self.frame)
+        return self.processed_frame
+
+    def reset(self):
+        self.t = 0
+        self.last_reward_step = 0
+        self.n_episodes += 1
+        self.total_reward = 0
+
+        self.frame = self.env.reset()
+        self.processed_frame = None
+        self.env.seed(self.seed + self.n_episodes)
+
+        return self.get_observation()
+
+    def step(self, action, real_action=False):
+        self.t += 1
+
+        if not real_action:
+            action = self.preprocess(action)
+
+        total_reward = 0
+        for _ in range(self.frame_skip + 1):
+            new_frame, reward, done, info = self.env.step(action)
+            self.total_reward += reward
+            reward = self.shape_reward(reward)
+            total_reward += reward
+
+            if reward > 0:
+                self.last_reward_step = self.t
+
+        if self.t - self.last_reward_step > 30:
+            done = True
+
+        reward = total_reward / (self.frame_skip + 1)
+
+
+        self.frame = new_frame
+
+        return self.get_observation(), reward, done, info
+
 
 class SegmentationEnv(gym.Env):
     def __init__(
@@ -158,7 +244,10 @@ class SegmentationEnv(gym.Env):
             self.base_agent_cum_reward = 0
 
         # update base agent reward
-        self.base_policy = self.base_agent.act(self.get_obs(), self.c, self.base_agent_last_reward, self.base_env.get_true_action())
+        if self.online:
+            self.base_policy = self.base_agent.act(self.get_obs(), self.c, self.base_agent_last_reward, self.base_agent.action)
+        else:
+            self.base_policy = self.base_agent.act(self.get_obs(), self.c, self.base_agent_last_reward, self.base_env.get_true_action())
         self.raw_state, self.base_agent_last_reward, done, info = self.base_env.step(self.base_policy)
         self.state = None
 

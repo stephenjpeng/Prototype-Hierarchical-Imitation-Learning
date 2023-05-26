@@ -2,13 +2,14 @@ import numpy as np
 import pickle
 import time
 import torch
+import torchvision
 
 from argparse import ArgumentParser
 from PIL import Image
 from torch.utils.data import TensorDataset, DataLoader, random_split
 from tqdm import tqdm
 
-from envs.segmentation_env import OfflineEnv, SegmentationEnv
+from envs.segmentation_env import OfflineEnv, OnlineEnv, SegmentationEnv
 from models.attention import VisionNetwork
 from models.car_base_agent import CarBaseAgents, BasicCarBaseAgents
 from models.car_detector_agent import CarDetectorAgent
@@ -23,9 +24,14 @@ def parse_args(args=None):
     parser.add_argument('--mode', type=str, default="train")
     parser.add_argument('--env', type=str, default="car")
 
+    # train params
     parser.add_argument('--train_X_file', type=str, default="data/obs_train_trimmed.pkl")
     parser.add_argument('--train_y_file', type=str, default="data/real_actions_trimmed.pkl")
     parser.add_argument('--mean_image_file', type=str, default="data/mean_image.png")
+
+    # val params
+    parser.add_argument('--model_name', type=str, default=None)
+    parser.add_argument('--num_iterations', type=int, default=5)
 
     # vision params
     parser.add_argument('--vision_lstm', action='store_true', help='use a vision lstm')
@@ -35,6 +41,7 @@ def parse_args(args=None):
     # base agent params
     parser.add_argument('--spatial_basis_size', type=int, default=8, help="u / v for the spatial basis (sqrt of basis # channels)")
     parser.add_argument('--base_mlp_size', type=int, default=32, help="base agent mlp (a and q) size")
+    parser.add_argument('--base_mlp_depth', type=int, default=2, help="base agent mlp hidden layers")
     parser.add_argument('--c_k', type=int, default=8, help="size of keys")
     parser.add_argument('--num_queries_per_agent', type=int, default=2, help="# of queries per agent")
     parser.add_argument('--base_agent', type=str, default="complex", help="complex or basic base agent")
@@ -194,7 +201,7 @@ def train(args):
                  f'{args["vision_core"]}_core_' +
                  f'alpha{args["alpha"]}_' +
                  f'spatial{args["spatial_basis_size"]}_' +
-                 f'{args["base_mlp_size"]}basemlpsize_' +
+                 f'({args["base_mlp_depth"]}x{args["base_mlp_size"]})basemlp_' +
                  f'{args["c_k"]}ck_' +
                  f'{args["lr"]}lr_' +
                  f'{args["tensorboard_suffix"]}_')
@@ -360,6 +367,69 @@ def train(args):
         d_scheduler.step()
         v_scheduler.step()
 
+
+def evaluate(args):
+    # create models
+    if args["base_agent"] == "basic":
+        base_agent = BasicCarBaseAgents(args['max_regimes'], args['base_mlp_size'], args=args)
+    else:
+        base_agent = CarBaseAgents(args['max_regimes'], args['base_mlp_size'], args=args)
+    detector   = CarDetectorAgent(args)
+    if args['vision_core'] == "basic":
+        vision_core = ConvVisionCore(args)
+    else:
+        vision_core = VisionNetwork(args)
+
+    base_agent.to(args['device'])
+    detector.to(args['device'])
+    vision_core.to(args['device'])
+
+    # Load in models
+    model_name = args['model_name']
+    detector.load_state_dict(torch.load(f'saved_models/{model_name}detector.pth'))
+    vision_core.load_state_dict(torch.load(f'saved_models/{model_name}vision.pth'))
+    base_agent.load_state_dict(torch.load(f'saved_models/{model_name}base.pth'))
+
+    detector.eval()
+    vision_core.eval()
+    base_agent.eval()
+
+    online_env = OnlineEnv()
+    args.update({'alpha': 0}) # no penalty for switching in the real world
+    env = SegmentationEnv(online_env, base_agent, vision_core, True, args)
+
+    print("*** Starting Evaluation... ***")
+    global_step = 0
+    ep_rewards = []
+    for iteration in tqdm(range(args['num_iterations'])):
+        global_step += 1
+        state = env.reset().to(args['device'])
+        detector.reset()
+        done = False
+
+        ep_reward = 0
+        T = 0
+        actions = []
+
+        # run a trajectory
+        while not done:
+            T += 1
+
+            policy = detector.act(state.clone().detach(), [[env.c]], env.get_valid_actions())
+            action = policy.mode
+            state, reward, done, info = env.step(action)
+
+            actions.append(action)
+            ep_reward += reward
+
+        ep_rewards.append(ep_reward)
+        trajectory = env.tensor_of_trajectory()
+        torchvision.io.write_video(f'videos/{model_name}_ep{iteration}.mp4',
+                trajectory.squeeze(0).permute(0, 2, 3, 1),
+                fps=50)
+    ep_rewards = np.array(ep_rewards)
+    print(f"Average reward (N={args['num_iterations']}): {np.mean(ep_rewards)}")
+    print(f"Std Dev reward (N={args['num_iterations']}): {np.std(ep_rewards)}")
 
 if __name__ == "__main__":
     main()
