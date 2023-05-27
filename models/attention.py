@@ -179,7 +179,7 @@ class VisionNetwork(nn.Module):
             #     input_channels=64, hidden_channels=args['hidden_size'], kernel_size=3
             # )
             self.vision_lstm = MAConvLSTMCell(
-                (12, 12), 64, args['hidden_size'], kernel_size=(3, 3), bias=True
+                (12, 12), 64, args['hidden_size'], kernel_size=(3, 3), bias=True, device=args['device']
             )
         else:
             self.vision_lstm = None

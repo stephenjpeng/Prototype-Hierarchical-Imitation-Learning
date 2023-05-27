@@ -6,7 +6,7 @@ import torch
 
 class MAConvLSTMCell(nn.Module):
 
-    def __init__(self, input_size, input_dim, hidden_dim, kernel_size, bias):
+    def __init__(self, input_size, input_dim, hidden_dim, kernel_size, bias, device='cpu'):
         """
         Initialize ConvLSTM cell.
         
@@ -33,6 +33,7 @@ class MAConvLSTMCell(nn.Module):
         self.kernel_size = kernel_size
         self.padding     = kernel_size[0] // 2, kernel_size[1] // 2
         self.bias        = bias
+        self.device = device
         
         self.conv = nn.Conv2d(in_channels=self.input_dim + self.hidden_dim,
                               out_channels=4 * self.hidden_dim,
@@ -74,8 +75,10 @@ class MAConvLSTMCell(nn.Module):
         self.cur_state = None
 
     def init_hidden(self, batch_size):
-        return (Variable(torch.zeros(batch_size, self.hidden_dim, self.height, self.width)),
-                Variable(torch.zeros(batch_size, self.hidden_dim, self.height, self.width)))
+        return (Variable(torch.zeros(batch_size, self.hidden_dim, self.height,
+            self.width)).to(self.device),
+                Variable(torch.zeros(batch_size, self.hidden_dim, self.height,
+                    self.width)).to(self.device))
 
 
 class ConvLSTM(nn.Module):

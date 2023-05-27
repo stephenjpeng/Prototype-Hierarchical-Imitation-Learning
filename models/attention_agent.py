@@ -83,14 +83,14 @@ class AttentionAgents(nn.Module):
         n = x.shape[0]
         
         if r_prev is None:
-            r_prev = torch.zeros(n, 1, 1)     # (n, 1, 1)
+            r_prev = torch.zeros(n, 1, 1).to(self.device)     # (n, 1, 1)
         else:
-            r_prev = r_prev if torch.is_tensor(r_prev) else torch.tensor(r_prev).to(self.device)
+            r_prev = r_prev.to(self.device) if torch.is_tensor(r_prev) else torch.tensor(r_prev).to(self.device)
             r_prev = r_prev.reshape(n, 1, 1)  # (n, 1, 1)
         if a_prev is None:
-            a_prev = torch.zeros(n, 1, self.num_actions)     # (n, 1, a)
+            a_prev = torch.zeros(n, 1, self.num_actions).to(self.device)     # (n, 1, a)
         else:
-            a_prev = a_prev if torch.is_tensor(a_prev) else torch.tensor(a_prev).to(self.device)
+            a_prev = a_prev.to(self.device) if torch.is_tensor(a_prev) else torch.tensor(a_prev).to(self.device)
             a_prev = a_prev.reshape(n, 1, self.num_actions)  # (n, 1, a)
 
         # Spatial
