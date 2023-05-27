@@ -6,11 +6,14 @@ import torch
 import torchvision.transforms.functional as F
 
 
+from collections import deque
 from copy import deepcopy
+from games.carracing import CarRacing
 from gym.spaces import Box
 from PIL import Image
 from PIL import ImageDraw
 from skimage.transform import resize
+from torch.distributions import Beta
 
 
 class OfflineEnv(gym.Env):
@@ -52,6 +55,10 @@ class OfflineEnv(gym.Env):
         speed = (labeled_action[1] - labeled_action[2])
         return [steering, speed]
 
+    def add_data(self, data):
+        self.N += len(data)
+        self.D += data
+
     def reset(self):
         self.t = 0
         self.last_reward_step = 0
@@ -64,8 +71,8 @@ class OfflineEnv(gym.Env):
 
     def step(self, action):
         reward = -torch.nn.functional.mse_loss(
-            action, torch.tensor(self.get_true_action()).to(self.device).unsqueeze(0)
-        )
+            action.float(), torch.tensor(self.get_true_action()).float().to(self.device).unsqueeze(0)
+        ).float()
 
         self.t += 1
         done = (self.t > self.max_ep_len) or (self.t == len(self.D[self.n_episodes % self.N][0]))
@@ -75,7 +82,7 @@ class OfflineEnv(gym.Env):
 
 
 class OnlineEnv(gym.Wrapper):
-    def __init__(self, frame_skip=0, seed=2023):
+    def __init__(self, frame_skip=0, frame_stack=4, seed=2023):
         self.seed = seed
         self.env = gym.make("CarRacing-v1")
         super().__init__(self.env)
@@ -91,6 +98,8 @@ class OnlineEnv(gym.Wrapper):
         self.processed_frame = None
 
         self.frame_skip = frame_skip
+        self.frame_stack = frame_stack
+        self.frame_buf = deque(maxlen=frame_stack)
 
 
     def preprocess(self, original_action):
@@ -110,6 +119,16 @@ class OnlineEnv(gym.Wrapper):
         observation = (255 * resize(original_observation[:-15, :, :], (96, 96))).astype('uint8')
         return observation
 
+    def expert_postprocess(self, original_observation):
+        # convert to grayscale
+        grayscale = np.array([0.299, 0.587, 0.114])
+        observation = np.dot(original_observation, grayscale) / 255.0
+
+        return observation
+
+    def get_expert_observation(self):
+        return np.array(self.frame_buf)
+
     def shape_reward(self, reward):
         return np.clip(reward, -1, 1)
 
@@ -127,6 +146,11 @@ class OnlineEnv(gym.Wrapper):
         self.frame = self.env.reset()
         self.processed_frame = None
         self.env.seed(self.seed + self.n_episodes)
+
+        first_frame = self.expert_postprocess(self.frame)
+
+        for _ in range(self.frame_stack):
+            self.frame_buf.append(first_frame)
 
         return self.get_observation()
 
@@ -151,8 +175,11 @@ class OnlineEnv(gym.Wrapper):
 
         reward = total_reward / (self.frame_skip + 1)
 
-
         self.frame = new_frame
+        self.processed_frame = None
+
+        new_frame = self.expert_postprocess(self.frame)
+        self.frame_buf.append(new_frame)
 
         return self.get_observation(), reward, done, info
 
@@ -165,11 +192,17 @@ class SegmentationEnv(gym.Env):
             vision_core,  # vision core to process state
             online,       # whether to create an online version
             env_params,   # parameters for our environment
+            dagger=False, # spin up the expert for DAgger
+            expert=None,  # expert for DAgger
             ):
         super(SegmentationEnv, self).__init__()
+        self.dagger = dagger
         self.base_env = base_env
         self.vision_core = vision_core
         self.base_agent = base_agent
+
+        if online and self.dagger:
+            self.expert = expert
 
         self.base_agent.reset()
         self.vision_core.reset()
@@ -197,6 +230,8 @@ class SegmentationEnv(gym.Env):
         self.ep_rewards = []
         self.ep_attns = []
 
+        self.expert_actions = []
+
     def get_obs(self):
         if self.state is None:
             self.state = self.vision_core(torch.tensor(self.raw_state).float().to(self.device).unsqueeze(0))
@@ -208,6 +243,14 @@ class SegmentationEnv(gym.Env):
             return np.array([0] + ([1] * self.max_regimes))
         else:
             return np.ones(self.max_regimes+1)
+
+    def process_expert_actions(self, expert_actions):
+        act = np.zeros(3)
+        act[0] = expert_actions[0] * 2 - 1
+        act[1] = max(expert_actions[1] * 2 - 1, 0)
+        act[2] = max(-(expert_actions[1] * 2 - 1), 0)
+
+        return np.array(act, dtype='float')
 
     def reset(self):
         self.t = 0
@@ -230,6 +273,8 @@ class SegmentationEnv(gym.Env):
         self.ep_rewards = []
         self.ep_attns = []
 
+        self.expert_actions = []
+
         return self.get_obs()
 
     def step(self, action):
@@ -243,12 +288,22 @@ class SegmentationEnv(gym.Env):
             reward += self.base_agent_cum_reward - self.alpha
             self.base_agent_cum_reward = 0
 
-        # update base agent reward
-        # if self.online:
+        if self.online and self.dagger:
+            # see what the expert would do given the observation
+            value, alpha, beta, x = self.expert(
+                    torch.tensor(self.base_env.get_expert_observation()).to(self.device).float().unsqueeze(0)
+            )
+            value, alpha, beta = value.squeeze(0), alpha.squeeze(0), beta.squeeze(0)
+            policy = Beta(alpha, beta)
+
+            # Choose how to get actions (sample or take mean)
+            expert_action = policy.mean.detach().cpu().numpy()
+            self.expert_actions.append(self.process_expert_actions(expert_action))
+            # input_action = policy.sample()
+
         last_action = self.base_agent.action.clone().detach() if self.base_agent.action is not None else None
         self.base_policy = self.base_agent.act(self.get_obs(), self.c, self.base_agent_last_reward, last_action)
-        # else:
-        #     self.base_policy = self.base_agent.act(self.get_obs(), self.c, self.base_agent_last_reward, self.base_env.get_true_action())
+
         self.raw_state, self.base_agent_last_reward, done, info = self.base_env.step(self.base_policy)
         self.state = None
 
@@ -269,7 +324,6 @@ class SegmentationEnv(gym.Env):
             next_obs = self.get_obs()
 
         self.ep_rewards.append(reward)
-
         return next_obs, reward, done, info
 
     def tensor_of_trajectory(self):
@@ -290,7 +344,7 @@ class SegmentationEnv(gym.Env):
                     ).astype(np.uint8))
             attn = attn.resize(frame.size)
 
-            im = Image.blend(frame, attn, 0.6)
+            im = Image.blend(frame, attn, 0.4)
             d = ImageDraw.Draw(im)
             d.text((5, 5), f'Regime: {c}', fill=(255, 0, 0))
             vid.append(F.pil_to_tensor(im))

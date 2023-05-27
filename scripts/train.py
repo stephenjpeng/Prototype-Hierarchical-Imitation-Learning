@@ -3,6 +3,7 @@ import pickle
 import time
 import torch
 import torchvision
+import wandb
 
 from argparse import ArgumentParser
 from PIL import Image
@@ -10,6 +11,7 @@ from torch.utils.data import TensorDataset, DataLoader, random_split
 from tqdm import tqdm
 
 from envs.segmentation_env import OfflineEnv, OnlineEnv, SegmentationEnv
+from games.carracing import RacingNet
 from models.attention import VisionNetwork
 from models.car_base_agent import CarBaseAgents, BasicCarBaseAgents
 from models.car_detector_agent import CarDetectorAgent
@@ -52,6 +54,10 @@ def parse_args(args=None):
     parser.add_argument('--update_every', type=int, default=5, help="episodes before update")
     parser.add_argument('--gamma', type=float, default=0.99, help="discount factor")
     parser.add_argument('--max_ep_len', type=int, default=1000, help="Max frames in a segment")
+    parser.add_argument('--dagger', action="store_true", help="Use DAgger for training")
+    parser.add_argument('--expert_file', type=str, default="weights/agent_weights.pt")
+    parser.add_argument('--dagger_num_trajectories', type=int, default=180, help="Number of trajectories to sample with DAgger")
+    parser.add_argument('--initial_train_len', type=int, default=1000, help="Number of trajectories to start training with")
 
     # detector params
     parser.add_argument('--max_seg_len', type=int, default=1000, help="Max frames in a segment")
@@ -93,7 +99,11 @@ def parse_args(args=None):
 def main(args=None):
     args = parse_args(args=args)
     if args['mode'] == 'train':
-        train(args)
+        try:
+            train(args)
+        except KeyboardInterrupt:
+            if args['tensorboard']:
+                wandb.finish()
     else:
         evaluate(args)
 
@@ -178,9 +188,10 @@ def train(args):
 
     # split data into test and train
     dataset = list(zip(X_train, real_actions))
-    N = len(dataset)
     rng = np.random.default_rng(args['seed'])
     rng.shuffle(dataset)
+    dataset = dataset[:args['initial_train_len']]  # only use a subset of the offline data for DAgger
+    N = len(dataset)
     split_pt = 9 * N // 10
     train_dataset = dataset[:split_pt]
     val_dataset   = dataset[split_pt:]
@@ -195,15 +206,16 @@ def train(args):
         args['mean_image'] = torch.tensor(args['mean_image']).to(args['device'])
 
     #### Training
-    model_name = (f'{args["env"]}_' +
-                 f'{args["max_regimes"],args["base_agent"]}agents_' +
-                 f'{args["n_layers"],args["hidden_size"]}detector_' +
-                 f'{args["vision_core"]}_core_' +
-                 f'alpha{args["alpha"]}_' +
-                 f'spatial{args["spatial_basis_size"]}_' +
-                 f'({args["base_mlp_depth"]}x{args["base_mlp_size"]})basemlp_' +
-                 f'{args["c_k"]}ck_' +
-                 f'{args["lr"]}lr_' +
+    model_name = (f'{args["env"]}/' +
+                 f'{args["max_regimes"],args["base_agent"]}agents/' +
+                 f'{args["vision_core"]}{"_lstm" if args["vision_lstm"] else ""}_core/' +
+                 f'{args["n_layers"],args["hidden_size"]}detector/' +
+                 f'({args["base_mlp_depth"]}x{args["base_mlp_size"]})basemlp/' +
+                 f'spatial{args["spatial_basis_size"]}/' +
+                 f'{args["c_k"]}ck/' +
+                 f'{args["lr"]}lr/' +
+                 f'alpha{args["alpha"]}/' +
+                 f'dagger:{args["dagger"]}/' +
                  f'{args["tensorboard_suffix"]}_')
     # create models
     if args["base_agent"] == "basic":
@@ -216,6 +228,14 @@ def train(args):
     else:
         vision_core = VisionNetwork(args)
 
+    if args['dagger']:
+        expert = RacingNet((4, 96, 96), [2])
+        expert.to(args['device'])
+        expert.load_state_dict(torch.load(args['expert_file'], map_location=args['device']))
+        expert.eval()
+    else:
+        expert = None
+
     base_agent.to(args['device'])
     detector.to(args['device'])
     vision_core.to(args['device'])
@@ -223,9 +243,16 @@ def train(args):
     offline_env = OfflineEnv(train_dataset, args)
     env = SegmentationEnv(offline_env, base_agent, vision_core, False, args)
 
+    # for validation
     with torch.no_grad():
         val_offline_env = OfflineEnv(val_dataset, args)
         val_env = SegmentationEnv(val_offline_env, base_agent, vision_core, False, args)
+
+        online_env = OnlineEnv()
+        val_args = args.copy()
+        val_args.update({'alpha': 0}) # no penalty for switching in the real world
+        val_online_env = SegmentationEnv(online_env, base_agent, vision_core, True,
+                val_args, args['dagger'], expert)
 
     # optimizers
     base_opt = torch.optim.Adam(base_agent.parameters(), lr=args['lr'])
@@ -238,6 +265,11 @@ def train(args):
     best_reward = -float('inf')
 
     if args['tensorboard']:
+        wandb.init(
+                project='cs224r',
+                config=args,
+                sync_tensorboard=True
+        )
         from tensorboardX import SummaryWriter
         writer = SummaryWriter(f'runs/{model_name}{time.strftime("%Y%m%d-%H%M%S")}')
 
@@ -348,24 +380,109 @@ def train(args):
                 base_loss, detector_reward, val_critic_loss, val_actor_loss, sample_trajectory, histogram = val_iteration(
                     detector, base_agent, vision_core, val_env, args
                 )
+                mean_online, std_online, trajectories = run_online_trajectory(
+                        val_online_env, detector, model_name, args['num_iterations'], args['device']
+                )
                 if args['tensorboard']:
                     writer.add_scalar('Val/BaseLoss', base_loss, global_step)
                     writer.add_scalar('Val/DetectorReward', detector_reward, global_step)
                     writer.add_scalar('Val/CriticLoss', val_critic_loss, global_step)
                     writer.add_scalar('Val/ActorLoss', val_actor_loss, global_step)
-                    writer.add_video('Val/SampleTrajectory', sample_trajectory, global_step)
+                    writer.add_scalar('Val/MeanOnlineReward', mean_online, global_step)
+                    writer.add_scalar('Val/StdOnlineReward', std_online, global_step)
+                    writer.add_video('Val/SampleOfflineTrajectory', sample_trajectory, global_step)
+                    writer.add_video('Val/SampleOnlineTrajectory',
+                            torch.cat(trajectories).unsqueeze(0).permute(0, 1, 4, 2, 3), global_step)
                     writer.add_histogram('Val/RegimeSample', histogram, global_step)
 
                 # save model if best so far
                 if detector_reward > best_reward:
-                    torch.save(detector.state_dict(), f'saved_models/{model_name}detector.pth')
-                    torch.save(vision_core.state_dict(), f'saved_models/{model_name}vision.pth')
-                    torch.save(base_agent.state_dict(), f'saved_models/{model_name}base.pth')
+                    torch.save(detector.state_dict(),
+                            f'saved_models/{model_name.replace("/", "_")}detector.pth')
+                    torch.save(vision_core.state_dict(),
+                            f'saved_models/{model_name.replace("/", "_")}vision.pth')
+                    torch.save(base_agent.state_dict(),
+                            f'saved_models/{model_name.replace("/", "_")}base.pth')
                     best_reward = detector_reward
 
         b_scheduler.step()
         d_scheduler.step()
         v_scheduler.step()
+
+        # Collect DAgger trajectories
+        if args['dagger']:
+            new_data = run_online_trajectory(
+                        val_online_env,
+                        detector,
+                        args['model_name'],
+                        args['dagger_num_trajectories'],
+                        args['device'],
+                        dagger=True
+                    )
+            offline_env.add_data(new_data)
+
+
+def run_online_trajectory(env, detector, model_name, num_iter, device, dagger=False):
+    detector.eval()
+    env.vision_core.eval()
+    env.base_agent.eval()
+
+    if dagger:
+        print("*** Starting DAgger collection... ***")
+        states = []
+        expert_actions = []
+    else:
+        print("*** Starting Online Evaluation... ***")
+        ep_rewards = []
+        trajectories = []
+
+    global_step = 0
+    for iteration in tqdm(range(num_iter)):
+        global_step += 1
+        state = env.reset().to(device)
+        detector.reset()
+        done = False
+
+        ep_reward = 0
+        T = 0
+
+        # run a trajectory
+        while not done:
+            T += 1
+
+            policy = detector.act(state.clone().detach(), [[env.c]], env.get_valid_actions())
+            action = policy.mode
+            state, reward, done, info = env.step(action)
+
+            ep_reward += reward.item() if torch.is_tensor(reward) else reward
+
+        if dagger:
+            if len(env.expert_actions) > 128:
+                start_pt = np.random.randint(0, len(env.expert_actions) - 128)
+                states.append(env.ep_states[:-1][start_pt:start_pt+128])
+                expert_actions.append(env.expert_actions[start_pt:start_pt+128])
+            else:
+                states.append(env.ep_states[:-1])
+                expert_actions.append(env.expert_actions)
+        else:
+            ep_rewards.append(ep_reward)
+            trajectories.append(env.tensor_of_trajectory().squeeze(0).permute(0, 2, 3, 1))
+
+    if dagger:
+        dagger_data = list(zip(states, expert_actions))
+    else:
+        ep_rewards = np.array(ep_rewards)
+        print(f"Average reward (N={num_iter}): {np.mean(ep_rewards)}")
+        print(f"Std Dev reward (N={num_iter}): {np.std(ep_rewards)}")
+
+    detector.train()
+    env.vision_core.train()
+    env.base_agent.train()
+
+    if dagger:
+        return dagger_data
+    else:
+        return np.mean(ep_rewards), np.std(ep_rewards), trajectories
 
 
 def evaluate(args):
@@ -390,46 +507,16 @@ def evaluate(args):
     vision_core.load_state_dict(torch.load(f'saved_models/{model_name}vision.pth'))
     base_agent.load_state_dict(torch.load(f'saved_models/{model_name}base.pth'))
 
-    detector.eval()
-    vision_core.eval()
-    base_agent.eval()
-
     online_env = OnlineEnv()
     args.update({'alpha': 0}) # no penalty for switching in the real world
     env = SegmentationEnv(online_env, base_agent, vision_core, True, args)
 
-    print("*** Starting Evaluation... ***")
-    global_step = 0
-    ep_rewards = []
-    for iteration in tqdm(range(args['num_iterations'])):
-        global_step += 1
-        state = env.reset().to(args['device'])
-        detector.reset()
-        done = False
+    _, _, trajectories = run_online_trajectory(env, detector, model_name, args['num_iterations'], args['device'])
+    for i, trajectory in enumerate(trajectories):
+        torchvision.io.write_video(f'videos/{model_name}_ep{i+1}.mp4',
+                trajectory,
+                fps=10)
 
-        ep_reward = 0
-        T = 0
-        actions = []
-
-        # run a trajectory
-        while not done:
-            T += 1
-
-            policy = detector.act(state.clone().detach(), [[env.c]], env.get_valid_actions())
-            action = policy.mode
-            state, reward, done, info = env.step(action)
-
-            actions.append(action)
-            ep_reward += reward
-
-        ep_rewards.append(ep_reward)
-        trajectory = env.tensor_of_trajectory()
-        torchvision.io.write_video(f'videos/{model_name}_ep{iteration}.mp4',
-                trajectory.squeeze(0).permute(0, 2, 3, 1),
-                fps=50)
-    ep_rewards = np.array(ep_rewards)
-    print(f"Average reward (N={args['num_iterations']}): {np.mean(ep_rewards)}")
-    print(f"Std Dev reward (N={args['num_iterations']}): {np.std(ep_rewards)}")
 
 if __name__ == "__main__":
     main()

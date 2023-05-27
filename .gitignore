@@ -27,5 +27,7 @@ tags
 # pkls
 *.pkl
 *.pth
+*.mp4
 runs/
 runs.old/
+wandb/
