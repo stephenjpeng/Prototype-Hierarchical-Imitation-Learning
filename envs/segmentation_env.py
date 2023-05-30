@@ -3,7 +3,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 import scipy.ndimage as ndimage
 import torch
-import torchvision.transforms.functional as F
+import torchvision.transforms.functional as tvF
+import torch.nn.functional as F
 
 
 from collections import deque
@@ -240,7 +241,11 @@ class SegmentationEnv(gym.Env):
         if self.regime_encoding == "none":
             return [[self.c]]
         elif self.regime_encoding == "onehot":
-            return F.one_hot(torch.tensor([self.c]).to(self.device), self.max_regimes)
+            # if no c selected give back zeros
+            if self.c == self.max_regimes:
+                return torch.zeros(1, self.max_regimes).to(self.device)
+            else:
+                return F.one_hot(torch.tensor([self.c]).to(self.device), self.max_regimes)
         else:
             raise NotImplementedError
 
@@ -344,7 +349,7 @@ class SegmentationEnv(gym.Env):
         for c, frame, attn in zip(self.cs, self.ep_states, self.ep_attns):
             # one frame for each head
             frame = np.tile(frame, [1, self.base_agent.num_queries_per_agent, 1])
-            frame = F.to_pil_image(frame)
+            frame = tvF.to_pil_image(frame)
 
             # adjust attn to RGB
             attn = attn.squeeze(0).permute(2, 0, 1)
@@ -360,6 +365,6 @@ class SegmentationEnv(gym.Env):
             im = Image.blend(frame, attn, 0.4)
             d = ImageDraw.Draw(im)
             d.text((5, 5), f'Regime: {c}', fill=(255, 0, 0))
-            vid.append(F.pil_to_tensor(im))
+            vid.append(tvF.pil_to_tensor(im))
         vid = torch.stack(vid)  # t, h, w, c
         return vid.unsqueeze(0)

@@ -306,7 +306,7 @@ def train(args):
             while not done:
                 T += 1
 
-                policy = detector.act(state.clone().detach(), env.get_regimes(), env.get_valid_actions())
+                policy = detector.act(state.clone().detach(), env.get_regime(), env.get_valid_actions())
                 action = policy.sample()
                 state, reward, done, info = env.step(action)
 
