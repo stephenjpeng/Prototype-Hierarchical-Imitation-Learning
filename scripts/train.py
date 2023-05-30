@@ -55,6 +55,7 @@ def parse_args(args=None):
     parser.add_argument('--gamma', type=float, default=0.99, help="discount factor")
     parser.add_argument('--max_ep_len', type=int, default=1000, help="Max frames in a segment")
     parser.add_argument('--dagger', action="store_true", help="Use DAgger for training")
+    parser.add_argument('--dagger_sweep', type=str, default=None, help="True if not none")
     parser.add_argument('--expert_file', type=str, default="weights/agent_weights.pt")
     parser.add_argument('--dagger_num_trajectories', type=int, default=180, help="Number of trajectories to sample with DAgger")
     parser.add_argument('--initial_train_len', type=int, default=1000, help="Number of trajectories to start training with")
@@ -92,6 +93,8 @@ def parse_args(args=None):
         args['mean_image'] = torch.tensor(np.asarray(Image.open(args['mean_image_file']))).to(args['device'])
     except:
         args['mean_image'] = None
+
+    args['dagger'] = args['dagger_sweep'] is not None
 
     return args
 
