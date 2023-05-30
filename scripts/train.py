@@ -67,6 +67,7 @@ def parse_args(args=None):
     parser.add_argument('--v_activation', type=str, default='identity')
     parser.add_argument('--pi_activation', type=str, default='identity')
     parser.add_argument('--vision_summ', type=str, default='max', help="Pooling type for output of vision core")
+    parser.add_argument('--regime_encoding', type=str, default='none', help="Encoding of regime")
 
     parser.add_argument('--cuda', type=bool, default=torch.cuda.is_available())
     parser.add_argument('--cpu', action='store_true', help='Ignore CUDA.')
@@ -137,7 +138,7 @@ def val_iteration(detector, base_agent, vision_core, env, args):
             # run a trajectory
             while not done:
                 T += 1
-                policy = detector.act(state, [[env.c]], env.get_valid_actions())
+                policy = detector.act(state, env.get_regime(), env.get_valid_actions())
                 action = policy.mode
                 state, reward, done, info = env.step(action)
 
@@ -305,7 +306,7 @@ def train(args):
             while not done:
                 T += 1
 
-                policy = detector.act(state.clone().detach(), [[env.c]], env.get_valid_actions())
+                policy = detector.act(state.clone().detach(), env.get_regimes(), env.get_valid_actions())
                 action = policy.sample()
                 state, reward, done, info = env.step(action)
 
@@ -453,7 +454,7 @@ def run_online_trajectory(env, detector, model_name, num_iter, device, dagger=Fa
         while not done:
             T += 1
 
-            policy = detector.act(state.clone().detach(), [[env.c]], env.get_valid_actions())
+            policy = detector.act(state.clone().detach(), env.get_regime(), env.get_valid_actions())
             action = policy.mode
             state, reward, done, info = env.step(action)
 

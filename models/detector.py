@@ -26,8 +26,16 @@ class DetectorAgent(nn.Module):
         self.prev_hidden = None
         self.prev_cell   = None
 
+        self.regime_encoding = agent_params['regime_encoding']
+        if self.regime_encoding == 'none':
+            enc_size = 1
+        elif self.regime_encoding == 'onehot':
+            enc_size = agent_params['max_regimes']
+        else:
+            raise NotImplementedError
+
         self.mlp = ptu.build_mlp(
-            1 + agent_params['hidden_size'], # input from LSTM + c
+            enc_size + agent_params['hidden_size'], # input from LSTM + c
             1 + self.num_actions,        # policy plus V
             agent_params['n_layers'],
             agent_params['hidden_size'],

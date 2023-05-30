@@ -207,6 +207,7 @@ class SegmentationEnv(gym.Env):
         self.base_agent.reset()
         self.vision_core.reset()
 
+        self.regime_encoding = env_params['regime_encoding']
         self.max_regimes = env_params['max_regimes']
         self.max_seg_len = env_params['max_seg_len']
         self.device = env_params['device']
@@ -231,6 +232,18 @@ class SegmentationEnv(gym.Env):
         self.ep_attns = []
 
         self.expert_actions = []
+
+    def get_regime(self):
+        """
+        returns a regime based on regime_encoding
+        """
+        if self.regime_encoding == "none":
+            return [[self.c]]
+        elif self.regime_encoding == "onehot":
+            return F.one_hot(torch.tensor([self.c]).to(self.device), self.max_regimes)
+        else:
+            raise NotImplementedError
+
 
     def get_obs(self):
         if self.state is None:
