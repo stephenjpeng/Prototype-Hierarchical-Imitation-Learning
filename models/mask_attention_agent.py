@@ -67,7 +67,7 @@ class MaskAttentionAgents(nn.Module):
         x = x.transpose(1, 3)
         a_x_orig = F.relu(self.a_conv(x))
 
-        actions = torch.zeros(1, self.num_actions)
+        actions = torch.zeros(1, self.num_actions).to(self.device)
         for i, ci in enumerate(c):
             if ci <= 0:
                 continue

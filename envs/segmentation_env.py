@@ -311,7 +311,7 @@ class SegmentationEnv(gym.Env):
                 self.c = action - 1
             else:
                 self.c = action - 1
-                self.c_probs = F.one_hot(self.c, self.max_regimes)
+                self.c_probs = F.one_hot(self.c.squeeze(0), self.max_regimes)
 
             reward += self.base_agent_cum_reward - self.alpha
             self.base_agent_cum_reward = 0
