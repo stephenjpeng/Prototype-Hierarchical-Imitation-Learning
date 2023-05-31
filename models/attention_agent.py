@@ -107,7 +107,7 @@ class AttentionAgents(nn.Module):
 
         Q = self.q_mlp(self.prev_hidden)  # (n, h, w, num_q * (c_k + c_s))
         Q = Q.reshape(n, self.num_queries, self.c_k + self.c_s)  # (n, num_queries, c_k + c_s)
-        Q = Q.chunk(self.num_agents, dim=1)[c]  # (n, num_queries_per_agent, c_k + c_s)
+        Q = Q.chunk(self.num_agents, dim=1)[torch.argmax(c)]  # (n, num_queries_per_agent, c_k + c_s)
 
         # Answer
         A = torch.matmul(K, Q.transpose(2, 1).unsqueeze(1))  # (n, h, w, num_queries_per_agent)

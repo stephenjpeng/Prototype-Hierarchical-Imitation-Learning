@@ -65,17 +65,21 @@ class MaskAttentionAgents(nn.Module):
  
         # Actor
         x = x.transpose(1, 3)
-        a_x = F.relu(self.a_conv(x))
+        a_x_orig = F.relu(self.a_conv(x))
 
-        # n, h, w, 1
-        att_p_feature = self.att_conv_a1(x)[:, c, :, :].squeeze(1)
-        self.att_p = self.sigmoid_a(att_p_feature) # mask-attention
-        self.att_p_sig5 = self.sigmoid_a(att_p_feature * 5.0)
-        a_mask_x = a_x * self.att_p # mask processing
-        self.A = self.att_p.unsqueeze(1).permute(0, 3, 2, 1).detach()
-        a_x = a_mask_x
-        a_x = a_x.view(a_x.size(0), -1)
-        actions = self.actor_activation(self.actor_linear(a_x))
+        actions = torch.zeros(1, self.num_actions).to(self.device)
+        for i, ci in enumerate(c):
+            if ci <= 0:
+                continue
+            # n, h, w, 1
+            att_p_feature = self.att_conv_a1(x)[:, i, :, :].squeeze(1)
+            self.att_p = self.sigmoid_a(att_p_feature) # mask-attention
+            self.att_p_sig5 = self.sigmoid_a(att_p_feature * 5.0)
+            a_mask_x = a_x_orig * self.att_p # mask processing
+            self.A = self.att_p.unsqueeze(1).permute(0, 3, 2, 1).detach()
+            a_x = a_mask_x
+            a_x = a_x.view(a_x.size(0), -1)
+            actions += ci * self.actor_activation(self.actor_linear(a_x))
 
         return actions, None # self.critic_linear(c_x), 
 

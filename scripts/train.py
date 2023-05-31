@@ -47,6 +47,7 @@ def parse_args(args=None):
     parser.add_argument('--c_k', type=int, default=8, help="size of keys")
     parser.add_argument('--num_queries_per_agent', type=int, default=2, help="# of queries per agent")
     parser.add_argument('--base_agent', type=str, default="complex", help="complex or basic base agent")
+    parser.add_argument('--base_agent_c', type=str, default="probs", help="probs or single")
 
     # train params
     parser.add_argument('--alpha', type=float, default=0.5, help="penalty for higher segments")
@@ -138,7 +139,7 @@ def val_iteration(detector, base_agent, vision_core, env, args):
             # run a trajectory
             while not done:
                 T += 1
-                policy = detector.act(state, env.get_regime(), env.get_valid_actions())
+                policy = detector.act(state, env.get_regime().detach(), env.get_valid_actions())
                 action = policy.mode
                 state, reward, done, info = env.step(action)
 
@@ -250,11 +251,11 @@ def train(args):
     # for validation
     with torch.no_grad():
         val_offline_env = OfflineEnv(val_dataset, args)
-        val_env = SegmentationEnv(val_offline_env, base_agent, vision_core, False, args)
+        val_args = args.copy()
+        val_args.update({'alpha': 0, 'base_agent_c': 'single'}) # no penalty for switching in the real world
+        val_env = SegmentationEnv(val_offline_env, base_agent, vision_core, False, val_args)
 
         online_env = OnlineEnv()
-        val_args = args.copy()
-        val_args.update({'alpha': 0}) # no penalty for switching in the real world
         val_online_env = SegmentationEnv(online_env, base_agent, vision_core, True,
                 val_args, args['dagger'], expert)
 
@@ -306,9 +307,9 @@ def train(args):
             while not done:
                 T += 1
 
-                policy = detector.act(state.clone().detach(), env.get_regime(), env.get_valid_actions())
+                policy = detector.act(state.clone().detach(), env.get_regime().detach(), env.get_valid_actions())
                 action = policy.sample()
-                state, reward, done, info = env.step(action)
+                state, reward, done, info = env.step(action, policy.probs[0])
 
                 actions.append(action)
                 log_probs.append(policy.log_prob(action))
@@ -512,7 +513,7 @@ def evaluate(args):
     base_agent.load_state_dict(torch.load(f'saved_models/{model_name}base.pth'))
 
     online_env = OnlineEnv()
-    args.update({'alpha': 0}) # no penalty for switching in the real world
+    args.update({'alpha': 0, 'base_agent_c': 'single'}) # no penalty for switching in the real world
     env = SegmentationEnv(online_env, base_agent, vision_core, True, args)
 
     _, _, trajectories = run_online_trajectory(env, detector, model_name, args['num_iterations'], args['device'])

@@ -223,6 +223,8 @@ class SegmentationEnv(gym.Env):
         self.n_episodes = 0
 
         self.c = self.max_regimes # will be forced to choose c at start
+        self.c_probs = torch.ones(self.max_regimes) / self.max_regimes
+        self.use_probs = env_params['base_agent_c'] == 'probs'
         self.segments = []
         self.ep_segments = []
         self.cs = []
@@ -280,6 +282,7 @@ class SegmentationEnv(gym.Env):
         self.base_agent_last_reward = 0
 
         self.c = self.max_regimes # will be forced to choose c at start
+        self.c_probs = torch.ones(self.max_regimes) / self.max_regimes
         self.cs = []
         self.ep_segments = []
         self.segments.append(self.ep_segments)
@@ -295,13 +298,20 @@ class SegmentationEnv(gym.Env):
 
         return self.get_obs()
 
-    def step(self, action):
+    def step(self, action, probs=None):
         self.t += 1
         reward = 0
 
         if action > 0:
             self.ep_segments.append(self.t - 1)
-            self.c = action - 1
+            if self.use_probs:
+                self.c_probs = probs[1:]
+                if probs[0] > 0:
+                    self.c_probs[self.c] += probs[0]
+                self.c = action - 1
+            else:
+                self.c = action - 1
+                self.c_probs = F.one_hot(self.c.squeeze(0), self.max_regimes)
 
             reward += self.base_agent_cum_reward - self.alpha
             self.base_agent_cum_reward = 0
@@ -320,7 +330,7 @@ class SegmentationEnv(gym.Env):
             # input_action = policy.sample()
 
         last_action = self.base_agent.action.clone().detach() if self.base_agent.action is not None else None
-        self.base_policy = self.base_agent.act(self.get_obs(), self.c, self.base_agent_last_reward, last_action)
+        self.base_policy = self.base_agent.act(self.get_obs(), self.c_probs, self.base_agent_last_reward, last_action)
 
         self.raw_state, self.base_agent_last_reward, done, info = self.base_env.step(self.base_policy)
         self.state = None
