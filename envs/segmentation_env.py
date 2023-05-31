@@ -3,7 +3,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 import scipy.ndimage as ndimage
 import torch
-import torchvision.transforms.functional as F
+import torch.nn.functional as F
+import torchvision.transforms.functional as tvF
 
 
 from collections import deque
@@ -222,7 +223,6 @@ class SegmentationEnv(gym.Env):
         self.n_episodes = 0
 
         self.c = self.max_regimes # will be forced to choose c at start
-        self.c_probs = torch.ones(self.max_regimes) / self.max_regimes
         self.use_probs = env_params['base_agent_c'] == 'probs'
         self.segments = []
         self.ep_segments = []
@@ -242,7 +242,10 @@ class SegmentationEnv(gym.Env):
         if self.regime_encoding == "none":
             return [[self.c]]
         elif self.regime_encoding == "onehot":
-            return F.one_hot(torch.tensor([self.c]).to(self.device), self.max_regimes)
+            if self.c == self.max_regimes:
+                return torch.zeros(1, self.max_regimes).to(self.device)
+            else:
+                return F.one_hot(torch.tensor([self.c]).to(self.device), self.max_regimes)
         else:
             raise NotImplementedError
 
@@ -255,9 +258,12 @@ class SegmentationEnv(gym.Env):
     def get_valid_actions(self):
         # forced to choose a regime
         if self.t == 0 or (self.t - self.ep_segments[-1]) > self.max_seg_len:
-            return np.array([0] + ([1] * self.max_regimes))
+            valid = np.array([0] + ([1] * self.max_regimes))
+            if self.c < self.max_regimes:
+                valid[self.c] = 0
         else:
-            return np.ones(self.max_regimes+1)
+            valid = np.ones(self.max_regimes+1)
+        return valid
 
     def process_expert_actions(self, expert_actions):
         act = np.zeros(3)
@@ -277,7 +283,6 @@ class SegmentationEnv(gym.Env):
         self.base_agent_last_reward = 0
 
         self.c = self.max_regimes # will be forced to choose c at start
-        self.c_probs = torch.ones(self.max_regimes) / self.max_regimes
         self.cs = []
         self.ep_segments = []
         self.segments.append(self.ep_segments)
@@ -299,14 +304,7 @@ class SegmentationEnv(gym.Env):
 
         if action > 0:
             self.ep_segments.append(self.t - 1)
-            if self.use_probs:
-                self.c_probs = probs[1:]
-                if probs[0] > 0:
-                    self.c_probs[self.c] += probs[0]
-                self.c = action - 1
-            else:
-                self.c = action - 1
-                self.c_probs = F.one_hot(self.c.squeeze(0), self.max_regimes)
+            self.c = action - 1
 
             reward += self.base_agent_cum_reward - self.alpha
             self.base_agent_cum_reward = 0
@@ -325,7 +323,7 @@ class SegmentationEnv(gym.Env):
             # input_action = policy.sample()
 
         last_action = self.base_agent.action.clone().detach() if self.base_agent.action is not None else None
-        self.base_policy = self.base_agent.act(self.get_obs(), self.c_probs, self.base_agent_last_reward, last_action)
+        self.base_policy = self.base_agent.act(self.get_obs(), self.get_regime().detach(), self.base_agent_last_reward, last_action)
 
         self.raw_state, self.base_agent_last_reward, done, info = self.base_env.step(self.base_policy)
         self.state = None
@@ -354,7 +352,7 @@ class SegmentationEnv(gym.Env):
         for c, frame, attn in zip(self.cs, self.ep_states, self.ep_attns):
             # one frame for each head
             frame = np.tile(frame, [1, self.base_agent.num_queries_per_agent, 1])
-            frame = F.to_pil_image(frame)
+            frame = tvF.to_pil_image(frame)
 
             # adjust attn to RGB
             attn = attn.squeeze(0).permute(2, 0, 1)
@@ -370,6 +368,6 @@ class SegmentationEnv(gym.Env):
             im = Image.blend(frame, attn, 0.4)
             d = ImageDraw.Draw(im)
             d.text((5, 5), f'Regime: {c}', fill=(255, 0, 0))
-            vid.append(F.pil_to_tensor(im))
+            vid.append(tvF.pil_to_tensor(im))
         vid = torch.stack(vid)  # t, h, w, c
         return vid.unsqueeze(0)
