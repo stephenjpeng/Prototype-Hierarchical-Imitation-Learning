@@ -1,4 +1,3 @@
-# Implementation of attention agent from Mott, 2019
 import time
 import torch 
 import torch.nn as nn
@@ -7,6 +6,7 @@ import pickle
 
 
 from models.attention import SpatialBasis, spatial_softmax, apply_alpha
+from models.rbf_mask import RBFMask
 import utils.pytorch_util as ptu
 
 
@@ -39,12 +39,19 @@ class AttentionAgents(nn.Module):
         self.num_queries = self.num_agents * self.num_queries_per_agent
 
         self.limit_attention = agent_params['limit_attention']
+        self.rbf_limit = agent_params['rbf_limit']
         self.base_weight = agent_params['base_weight']
         if self.limit_attention:
-            # (n, h, w, num_queries)
-            self.attention_base = nn.Parameter(
-                torch.randn(1, self.h, self.w, self.num_queries)
-            )
+            if self.rbf_limit:
+                self.attention_kernels = nn.Parameter(
+                    torch.rand(self.num_queries, 2)
+                )
+                self.rbf_mask = RBFMask(self.h, self.w, self.device)
+            else:
+                # (n, h, w, num_queries)
+                self.attention_base = nn.Parameter(
+                    torch.randn(1, self.h, self.w, self.num_queries)
+                )
 
         self.spatial = SpatialBasis(self.h, self.w, self.c_s, int(np.sqrt(self.c_s)))
 
@@ -88,6 +95,7 @@ class AttentionAgents(nn.Module):
     def forward(self, x, c, r_prev=None, a_prev=None):
         # Setup
         n = x.shape[0]
+        regime = torch.argmax(c)
         
         if r_prev is None:
             r_prev = torch.zeros(n, 1, 1).to(self.device)     # (n, 1, 1)
@@ -114,7 +122,7 @@ class AttentionAgents(nn.Module):
 
         Q = self.q_mlp(self.prev_hidden)  # (n, h, w, num_q * (c_k + c_s))
         Q = Q.reshape(n, self.num_queries, self.c_k + self.c_s)  # (n, num_queries, c_k + c_s)
-        Q = Q.chunk(self.num_agents, dim=1)[torch.argmax(c)]  # (n, num_queries_per_agent, c_k + c_s)
+        Q = Q.chunk(self.num_agents, dim=1)[regime]  # (n, num_queries_per_agent, c_k + c_s)
 
         # Answer
         A = torch.matmul(K, Q.transpose(2, 1).unsqueeze(1))  # (n, h, w, num_queries_per_agent)
@@ -123,8 +131,11 @@ class AttentionAgents(nn.Module):
         # (n, h, w, num_queries_per_agent)
         A = spatial_softmax(A)
         if self.limit_attention:
-            A = ((1 - self.base_weight) * A + self.base_weight *
-                    spatial_softmax(self.attention_base.chunk(self.num_agents, dim=3)[torch.argmax(c)]))
+            if self.rbf_limit:
+                attention_base_c = self.rbf_mask(self.attention_kernels.chunk(self.num_agents, dim=0)[regime])
+            else:
+                attention_base_c = self.attention_base.chunk(self.num_agents, dim=3)[regime]
+            A = ((1 - self.base_weight) * A + self.base_weight * spatial_softmax(attention_base_c))
         self.A = A.clone().detach()
         # (n, 1, 1, num_queries_per_agent)
         a = apply_alpha(A, V)

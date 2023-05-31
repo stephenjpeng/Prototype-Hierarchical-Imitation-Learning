@@ -49,6 +49,7 @@ def parse_args(args=None):
     parser.add_argument('--base_agent', type=str, default="complex", help="complex or basic base agent")
     parser.add_argument('--base_agent_c', type=str, default="probs", help="probs or single")
     parser.add_argument('--limit_attention', action='store_true', help='Limit attention mechanism')
+    parser.add_argument('--rbf_limit', action='store_true', help='Limit attention mechanism with an RBF-like mask')
     parser.add_argument('--base_weight', type=float, default=0.7, help="Weight of time-invariant attention")
 
     # train params
