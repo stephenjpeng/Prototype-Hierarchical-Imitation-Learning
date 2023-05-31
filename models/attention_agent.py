@@ -1,5 +1,4 @@
 # Implementation of attention agent from Mott, 2019
-# Modified from https://github.com/cjlovering/Towards-Interpretable-Reinforcement-Learning-Using-Attention-Augmented-Agents-Replication/blob/master/attention.py
 import time
 import torch 
 import torch.nn as nn
@@ -43,7 +42,7 @@ class AttentionAgents(nn.Module):
         self.base_weight = agent_params['base_weight']
         if self.limit_attention:
             # (n, h, w, num_queries)
-            self.attention_base = torch.Parameter(
+            self.attention_base = nn.Parameter(
                 torch.randn(1, self.h, self.w, self.num_queries)
             )
 
@@ -124,7 +123,8 @@ class AttentionAgents(nn.Module):
         # (n, h, w, num_queries_per_agent)
         A = spatial_softmax(A)
         if self.limit_attention:
-            A = (1 - self.base_weight) * A + self.base_weight * spatial_softmax(self.attention_base)
+            A = ((1 - self.base_weight) * A + self.base_weight *
+                    spatial_softmax(self.attention_base.chunk(self.num_agents, dim=3)[torch.argmax(c)]))
         self.A = A.clone().detach()
         # (n, 1, 1, num_queries_per_agent)
         a = apply_alpha(A, V)
