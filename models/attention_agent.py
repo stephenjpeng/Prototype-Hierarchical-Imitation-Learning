@@ -39,6 +39,14 @@ class AttentionAgents(nn.Module):
         self.num_queries_per_agent = agent_params['num_queries_per_agent']
         self.num_queries = self.num_agents * self.num_queries_per_agent
 
+        self.limit_attention = agent_params['limit_attention']
+        self.base_weight = agent_params['base_weight']
+        if self.limit_attention:
+            # (n, h, w, num_queries)
+            self.attention_base = torch.Parameter(
+                torch.randn(1, self.h, self.w, self.num_queries)
+            )
+
         self.spatial = SpatialBasis(self.h, self.w, self.c_s, int(np.sqrt(self.c_s)))
 
         self.answer_mlp = ptu.build_mlp(
@@ -115,6 +123,8 @@ class AttentionAgents(nn.Module):
         A = A / np.sqrt(self.c_k + self.c_s)
         # (n, h, w, num_queries_per_agent)
         A = spatial_softmax(A)
+        if self.limit_attention:
+            A = (1 - self.base_weight) * A + self.base_weight * spatial_softmax(self.attention_base)
         self.A = A.clone().detach()
         # (n, 1, 1, num_queries_per_agent)
         a = apply_alpha(A, V)

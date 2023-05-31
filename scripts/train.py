@@ -48,6 +48,8 @@ def parse_args(args=None):
     parser.add_argument('--num_queries_per_agent', type=int, default=2, help="# of queries per agent")
     parser.add_argument('--base_agent', type=str, default="complex", help="complex or basic base agent")
     parser.add_argument('--base_agent_c', type=str, default="probs", help="probs or single")
+    parser.add_argument('--limit_attention', action='store_true', help='Limit attention mechanism')
+    parser.add_argument('--base_weight', type=float, default=0.7, help="Weight of time-invariant attention")
 
     # train params
     parser.add_argument('--alpha', type=float, default=0.5, help="penalty for higher segments")

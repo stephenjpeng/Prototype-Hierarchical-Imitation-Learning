@@ -259,10 +259,10 @@ class SegmentationEnv(gym.Env):
         # forced to choose a regime
         if self.t == 0 or (self.t - self.ep_segments[-1]) > self.max_seg_len:
             valid = np.array([0] + ([1] * self.max_regimes))
-            if self.c < self.max_regimes:
-                valid[self.c] = 0
         else:
             valid = np.ones(self.max_regimes+1)
+        if self.c < self.max_regimes:
+            valid[self.c] = 0
         return valid
 
     def process_expert_actions(self, expert_actions):
