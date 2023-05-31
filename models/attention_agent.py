@@ -133,7 +133,7 @@ class AttentionAgents(nn.Module):
         if self.limit_attention:
             if self.rbf_limit:
                 attention_base_c = self.rbf_mask(self.attention_kernels.chunk(self.num_agents, dim=0)[regime])
-                A = A * spatial_softmax(attention_base_c))
+                A = A * spatial_softmax(attention_base_c)
             else:
                 attention_base_c = self.attention_base.chunk(self.num_agents, dim=3)[regime]
                 A = ((1 - self.base_weight) * A + self.base_weight * spatial_softmax(attention_base_c))
