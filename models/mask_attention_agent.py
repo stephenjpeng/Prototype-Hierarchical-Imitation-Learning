@@ -41,8 +41,8 @@ class MaskAttentionAgents(nn.Module):
         self.sigmoid_a = nn.Sigmoid()
         self.a_conv = nn.Conv2d(self.hidden_size, self.hidden_size // 2, 1, stride=1, padding=0)
 
-        self.actor_linear = [nn.Linear(self.hidden_size * 12 * 6, self.num_actions)
-                for _ in range(self.num_agents)]
+        self.actor_linear = nn.ModuleList([nn.Linear(self.hidden_size * 12 * 6, self.num_actions)
+                for _ in range(self.num_agents)])
         self.actor_activation = nn.Tanh()
 
         # attention limits
@@ -71,7 +71,6 @@ class MaskAttentionAgents(nn.Module):
         for lin in self.actor_linear:
             lin.weight.data = ptu.norm_col_init(lin.weight.data, 0.01)
             lin.bias.data.fill_(0)
-            lin.to(self.device)
         # self.critic_linear.weight.data = ptu.norm_col_init(
         #     self.critic_linear.weight.data, 1.0)
         # self.critic_linear.bias.data.fill_(0)
