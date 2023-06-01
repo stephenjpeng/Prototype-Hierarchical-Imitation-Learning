@@ -215,10 +215,10 @@ class SegmentationEnv(gym.Env):
         self.online = online
         self.alpha = env_params['alpha']
 
-        self.disallow_same_regime = env_params['disallow_same_regime']
+        self.allow_same_regime = env_params['allow_same_regime']
         self.shift_rewards = env_params['shift_rewards']
         self.reward_boost = env_params['reward_boost']
-        # self.sparse_rewards = env_params['sparse_rewards']
+        self.sparse_rewards = env_params['sparse_rewards']
 
         self.t = 0
         self.last_reward_step = 0
@@ -266,7 +266,7 @@ class SegmentationEnv(gym.Env):
             valid = np.array([0] + ([1] * self.max_regimes))
         else:
             valid = np.ones(self.max_regimes+1)
-        if self.disallow_same_regime and self.c < self.max_regimes:
+        if not self.allow_same_regime and self.c < self.max_regimes:
             valid[self.c] = 0
         return valid
 
@@ -316,6 +316,9 @@ class SegmentationEnv(gym.Env):
 
             reward += self.base_agent_cum_reward - self.alpha + self.reward_boost
             self.base_agent_cum_reward = 0
+        elif not self.sparse_rewards:
+            reward += self.base_agent_cum_reward + self.reward_boost
+            self.base_agent_cum_reward = 0
 
         if self.online and self.dagger:
             # see what the expert would do given the observation
@@ -343,7 +346,7 @@ class SegmentationEnv(gym.Env):
 
         if done:
             next_obs = None
-            if action == 0: # force reward update even if no action
+            if action == 0 and self.sparse_rewards: # force reward update even if no action
                 self.ep_segments.append(self.t - 1)
                 self.c = self.max_regimes
 

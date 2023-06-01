@@ -37,9 +37,9 @@ def parse_args(args=None):
 
     # vision params
     parser.add_argument('--reward_boost', type=float, default=0.0, help="Boost reward for completed segments")
-    parser.add_argument('--disallow_same_regime', action='store_true', help='max_seg_len forces a regime switch')
+    parser.add_argument('--allow_same_regime', action='store_true', help='max_seg_len forces a regime switch')
     parser.add_argument('--shift_rewards', action='store_true', help='Shift rewards back to the action that caused it')
-    # parser.add_argument('--sparse_rewards', action='store_true', help='Sparse rewards only when switching regimes')
+    parser.add_argument('--no_sparse_rewards', dest='sparse_rewards', action='store_false', help='Sparse rewards not only when switching regimes')
 
     # vision params
     parser.add_argument('--vision_lstm', action='store_true', help='use a vision lstm')
