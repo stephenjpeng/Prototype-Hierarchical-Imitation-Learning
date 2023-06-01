@@ -215,6 +215,11 @@ class SegmentationEnv(gym.Env):
         self.online = online
         self.alpha = env_params['alpha']
 
+        self.disallow_same_regime = env_params['disallow_same_regime']
+        self.shift_rewards = env_params['shift_rewards']
+        self.reward_boost = env_params['reward_boost']
+        # self.sparse_rewards = env_params['sparse_rewards']
+
         self.t = 0
         self.last_reward_step = 0
         self.total_reward = 0
@@ -261,7 +266,7 @@ class SegmentationEnv(gym.Env):
             valid = np.array([0] + ([1] * self.max_regimes))
         else:
             valid = np.ones(self.max_regimes+1)
-        if self.c < self.max_regimes:
+        if self.disallow_same_regime and self.c < self.max_regimes:
             valid[self.c] = 0
         return valid
 
@@ -272,6 +277,9 @@ class SegmentationEnv(gym.Env):
         act[2] = max(-(expert_actions[1] * 2 - 1), 0)
 
         return np.array(act, dtype='float')
+
+    def shift_ep_rewards(self):
+        raise NotImplementedError
 
     def reset(self):
         self.t = 0
@@ -306,7 +314,7 @@ class SegmentationEnv(gym.Env):
             self.ep_segments.append(self.t - 1)
             self.c = action - 1
 
-            reward += self.base_agent_cum_reward - self.alpha
+            reward += self.base_agent_cum_reward - self.alpha + self.reward_boost
             self.base_agent_cum_reward = 0
 
         if self.online and self.dagger:
@@ -339,12 +347,17 @@ class SegmentationEnv(gym.Env):
                 self.ep_segments.append(self.t - 1)
                 self.c = self.max_regimes
 
-                reward += self.base_agent_cum_reward - self.alpha
+                reward += self.base_agent_cum_reward - self.alpha + self.reward_boost
                 self.base_agent_cum_reward = 0
         else:
             next_obs = self.get_obs()
 
+
         self.ep_rewards.append(reward)
+
+        if self.shift_rewards and done:
+            self.shift_ep_rewards()
+
         return next_obs, reward, done, info
 
     def tensor_of_trajectory(self):
