@@ -55,7 +55,7 @@ class AttentionAgents(nn.Module):
 
         self.spatial = SpatialBasis(self.h, self.w, self.c_s, int(np.sqrt(self.c_s)))
 
-        self.answer_mlp = ptu.build_mlp(
+        self.answer_mlps = [ptu.build_mlp(
             # queries + answers + action + reward
             self.num_queries_per_agent * (self.c_k + 2 * self.c_s + self.c_v) +
             self.num_actions + 1,
@@ -64,20 +64,20 @@ class AttentionAgents(nn.Module):
             agent_params['a_mlp_size'],              # hidden size
             'leaky_relu',                                  # hidden activations
             'identity',                              # output activations
-        )
+        ) for _ in range(self.num_agents)]
 
         self.policy_core = nn.LSTMCell(self.hidden_size, self.hidden_size)
         self.prev_hidden = None
         self.prev_cell   = None
 
-        self.q_mlp = ptu.build_mlp(
+        self.q_mlps = [ptu.build_mlp(
             self.hidden_size,                         # input from LSTM
             self.num_queries * (self.c_k + self.c_s), # N * (c_k + c_s) to be reshaped
             agent_params['q_mlp_n_layers'],
             agent_params['q_mlp_size'],               # hidden size
             'leaky_relu',                                   # hidden activations
             'identity',                               # output activations
-        )
+        ) for _ in range(self.num_agents)]
 
         self.policy_heads = [
                 ptu.build_mlp(self.hidden_size, self.num_actions, 0, 0,
@@ -120,7 +120,7 @@ class AttentionAgents(nn.Module):
                 n, self.hidden_size, requires_grad=True
             ).to(self.device)
 
-        Q = self.q_mlp(self.prev_hidden)  # (n, h, w, num_q * (c_k + c_s))
+        Q = self.q_mlps[regime](self.prev_hidden)  # (n, h, w, num_q * (c_k + c_s))
         Q = Q.reshape(n, self.num_queries, self.c_k + self.c_s)  # (n, num_queries, c_k + c_s)
         Q = Q.chunk(self.num_agents, dim=1)[regime]  # (n, num_queries_per_agent, c_k + c_s)
 
@@ -149,7 +149,7 @@ class AttentionAgents(nn.Module):
             dim=2,
         ).squeeze(1)
         # (n, hidden_size)
-        answer = self.answer_mlp(answer)
+        answer = self.answer_mlps[regime](answer)
 
         # Policy
         if self.prev_cell is None:
