@@ -71,6 +71,7 @@ class MaskAttentionAgents(nn.Module):
         for lin in self.actor_linear:
             lin.weight.data = ptu.norm_col_init(lin.weight.data, 0.01)
             lin.bias.data.fill_(0)
+            lin.to(self.device)
         # self.critic_linear.weight.data = ptu.norm_col_init(
         #     self.critic_linear.weight.data, 1.0)
         # self.critic_linear.bias.data.fill_(0)

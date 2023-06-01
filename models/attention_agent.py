@@ -64,7 +64,7 @@ class AttentionAgents(nn.Module):
             agent_params['a_mlp_size'],              # hidden size
             'leaky_relu',                                  # hidden activations
             'identity',                              # output activations
-        ) for _ in range(self.num_agents)]
+        ).to(self.device) for _ in range(self.num_agents)]
 
         self.policy_core = nn.LSTMCell(self.hidden_size, self.hidden_size)
         self.prev_hidden = None
@@ -77,7 +77,7 @@ class AttentionAgents(nn.Module):
             agent_params['q_mlp_size'],               # hidden size
             'leaky_relu',                                   # hidden activations
             'identity',                               # output activations
-        ) for _ in range(self.num_agents)]
+        ).to(self.device) for _ in range(self.num_agents)]
 
         self.policy_heads = [
                 ptu.build_mlp(self.hidden_size, self.num_actions, 0, 0,
