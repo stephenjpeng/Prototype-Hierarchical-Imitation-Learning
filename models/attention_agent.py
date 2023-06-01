@@ -55,7 +55,7 @@ class AttentionAgents(nn.Module):
 
         self.spatial = SpatialBasis(self.h, self.w, self.c_s, int(np.sqrt(self.c_s)))
 
-        self.answer_mlps = [ptu.build_mlp(
+        self.answer_mlps = nn.ModuleList([ptu.build_mlp(
             # queries + answers + action + reward
             self.num_queries_per_agent * (self.c_k + 2 * self.c_s + self.c_v) +
             self.num_actions + 1,
@@ -64,25 +64,25 @@ class AttentionAgents(nn.Module):
             agent_params['a_mlp_size'],              # hidden size
             'leaky_relu',                                  # hidden activations
             'identity',                              # output activations
-        ).to(self.device) for _ in range(self.num_agents)]
+        ) for _ in range(self.num_agents)])
 
         self.policy_core = nn.LSTMCell(self.hidden_size, self.hidden_size)
         self.prev_hidden = None
         self.prev_cell   = None
 
-        self.q_mlps = [ptu.build_mlp(
+        self.q_mlps = nn.ModuleList([ptu.build_mlp(
             self.hidden_size,                         # input from LSTM
             self.num_queries * (self.c_k + self.c_s), # N * (c_k + c_s) to be reshaped
             agent_params['q_mlp_n_layers'],
             agent_params['q_mlp_size'],               # hidden size
             'leaky_relu',                                   # hidden activations
             'identity',                               # output activations
-        ).to(self.device) for _ in range(self.num_agents)]
+        ) for _ in range(self.num_agents)])
 
-        self.policy_heads = [
+        self.policy_heads = nn.ModuleList([
                 ptu.build_mlp(self.hidden_size, self.num_actions, 0, 0,
                         'leaky_relu', agent_params['policy_act'])
-                for _ in range(self.num_policy_heads)]
+                for _ in range(self.num_policy_heads)])
         for policy_head in self.policy_heads:
             policy_head.to(self.device)
         self.values_head = ptu.build_mlp(self.hidden_size, self.num_actions, 0, 0, 'leaky_relu',
