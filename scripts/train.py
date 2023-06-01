@@ -35,8 +35,9 @@ def parse_args(args=None):
     parser.add_argument('--model_name', type=str, default=None)
     parser.add_argument('--num_iterations', type=int, default=5)
 
-    # vision params
+    # env params
     parser.add_argument('--reward_boost', type=float, default=0.0, help="Boost reward for completed segments")
+    parser.add_argument('--use_returns', action='store_true', help='use returns for training')
     parser.add_argument('--allow_same_regime', action='store_true', help='max_seg_len forces a regime switch')
     parser.add_argument('--shift_rewards', action='store_true', help='Shift rewards back to the action that caused it')
     parser.add_argument('--no_sparse_rewards', dest='sparse_rewards', action='store_false', help='Sparse rewards not only when switching regimes')
@@ -330,7 +331,8 @@ def train(args):
             # TODO: CONSIDER N-STEP RETURNS HERE
             with torch.no_grad():
                 ep_values = torch.tensor(ep_values + [0])
-                y = torch.tensor(env.ep_rewards) + args['gamma'] * ep_values[1:]
+                returns = env.ep_returns if args['use_returns'] else env.ep_rewards
+                y = torch.tensor(returns) + args['gamma'] * ep_values[1:]
                 adv  = y - ep_values[:-1]
 
                 targets.append(y)

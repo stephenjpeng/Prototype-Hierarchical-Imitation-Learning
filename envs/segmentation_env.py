@@ -214,6 +214,7 @@ class SegmentationEnv(gym.Env):
         self.device = env_params['device']
         self.online = online
         self.alpha = env_params['alpha']
+        self.gamma = env_params['gamma']
 
         self.allow_same_regime = env_params['allow_same_regime']
         self.shift_rewards = env_params['shift_rewards']
@@ -280,6 +281,13 @@ class SegmentationEnv(gym.Env):
 
     def shift_ep_rewards(self):
         raise NotImplementedError
+
+    def compute_ep_returns(self):
+        self.ep_returns = []
+        last_r = 0
+        for i in reversed(range(len(self.ep_rewards))):
+            self.ep_returns.append(self.ep_rewards[i] + self.gamma * last_r)
+        self.ep_returns = self.ep_returns[::-1]
 
     def reset(self):
         self.t = 0
@@ -358,8 +366,8 @@ class SegmentationEnv(gym.Env):
 
         self.ep_rewards.append(reward)
 
-        if self.shift_rewards and done:
-            self.shift_ep_rewards()
+        if done:
+            self.compute_ep_returns()
 
         return next_obs, reward, done, info
 
