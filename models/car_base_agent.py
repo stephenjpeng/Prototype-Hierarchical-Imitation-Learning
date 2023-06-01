@@ -58,6 +58,9 @@ class BasicCarBaseAgents(MaskAttentionAgents):
                 'num_policy_heads': 1,      # estimate controls straight up
                 'num_agents': num_agents,
                 'num_queries_per_agent': 2, # paper: 4
+                'vision_h': 12,
+                'vision_w': 12,
+                'vision_ch': 3,
         }
         self.agent_params.update(args)
         super(BasicCarBaseAgents, self).__init__(self.agent_params)

@@ -357,7 +357,6 @@ def train(args):
                 base_loss /= T
                 base_loss.backward()
                 base_opt.step()
-                vision_opt.step()
 
 
                 ## update detector and vision core with AC
@@ -372,6 +371,7 @@ def train(args):
 
                 detector_loss.backward()
                 detector_opt.step()
+                vision_opt.step()
 
             # log training
             if global_step % args['log_every'] == 0 and args['tensorboard']:
