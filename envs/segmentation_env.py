@@ -76,8 +76,8 @@ class OfflineEnv(gym.Env):
         ).float()
 
         self.t += 1
-        done = (self.t > self.max_ep_len) or (self.t == len(self.D[self.n_episodes % self.N][0]))
-        next_obs = None if done else self.get_observation()
+        done = (self.t > self.max_ep_len) or (self.t == len(self.D[self.n_episodes % self.N][0]) - 1)
+        next_obs = self.get_observation()
 
         return next_obs, reward, done, {}
 
@@ -358,15 +358,14 @@ class SegmentationEnv(gym.Env):
         self.cs.append(self.c.item())
 
         if done:
-            next_obs = None
             if action == 0 and self.sparse_rewards: # force reward update even if no action
                 self.ep_segments.append(self.t - 1)
                 self.c = self.max_regimes
 
                 reward += self.base_agent_cum_reward - self.alpha + self.reward_boost
                 self.base_agent_cum_reward = 0
-        else:
-            next_obs = self.get_obs()
+
+        next_obs = self.get_obs()
 
 
         self.ep_rewards.append(reward)
