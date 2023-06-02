@@ -359,7 +359,8 @@ def train(args):
                 if args['standardize']:
                     returns = (returns - returns.mean()) / returns.std()
 
-                advs = returns + args['gamma'] * b_values_next - b_values
+                # advs = returns + args['gamma'] * b_values_next - b_values
+                advs = returns - b_values
                 actions = torch.tensor(actions)
                 log_probs = torch.tensor(log_probs, requires_grad=True).float().to(args['device'])
 
