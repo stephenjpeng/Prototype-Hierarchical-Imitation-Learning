@@ -16,7 +16,7 @@ class RBFMask(nn.Module):
         out = []
         for xi in x:
             out.append(
-                torch.exp(- (self.scale) * torch.pow(self.grid - x,
+                torch.exp(- (self.scale) * torch.pow(self.grid - xi,
             2).sum(axis=-1).reshape(self.h, self.w)))
 
         return torch.stack(out).permute(1, 2, 0).unsqueeze(0)
