@@ -38,6 +38,7 @@ def parse_args(args=None):
     # env params
     parser.add_argument('--reward_boost', type=float, default=0.0, help="Boost reward for completed segments")
     parser.add_argument('--use_returns', action='store_true', help='use returns for training')
+    parser.add_argument('--standardize', action='store_true', help='standardize returns for training')
     parser.add_argument('--allow_same_regime', action='store_true', help='max_seg_len forces a regime switch')
     parser.add_argument('--shift_rewards', action='store_true', help='Shift rewards back to the action that caused it')
     parser.add_argument('--no_sparse_rewards', dest='sparse_rewards', action='store_false', help='Sparse rewards not only when switching regimes')
@@ -309,8 +310,11 @@ def train(args):
                 actions = []
                 log_probs = []
                 rewards = []
-                targets = []
                 advs    = []
+                # batched returns, V_{t+1}, V_t
+                b_returns = []
+                b_values = []
+                b_values_next = []
                 T = 0
 
             ep_values = []
@@ -328,41 +332,36 @@ def train(args):
                 rewards.append(reward)
                 base_loss -= env.base_agent_last_reward
 
+            # run detector one more time to get final value
+            _ = detector.act(state.clone().detach(), env.get_regime().detach(), env.get_valid_actions())
+
             # compute targets
             # TODO: CONSIDER N-STEP RETURNS HERE
-            with torch.no_grad():
-                ep_values = torch.tensor(ep_values + [0])
-                returns = torch.tensor(env.ep_returns if args['use_returns'] else env.ep_rewards)
-                returns = (returns - returns.mean()) / returns.std()
-                y = torch.tensor(returns) + args['gamma'] * ep_values[1:]
-                adv  = y - ep_values[:-1]
-
-                targets.append(y)
-                advs.append(adv)
-
-            # last_value = values[-1]
-            # values = values[:-1]  # remove last value
-            # log_probs = log_probs[:-1]  # remove last log_prob
-
-            # compute targets
-            # q = reward.detach().item()
             # with torch.no_grad():
-            #     y = torch.zeros(len(env.ep_rewards) - 1)
-            #     for i in reversed(range(len(env.ep_rewards) - 1)):
-            #         q = env.ep_rewards[i] + args['gamma'] * q
-            #         y[i] = q
-            #     ys.append(y)
+            ep_values = torch.tensor(ep_values + [detector.value])
+            b_returns.append(
+                    torch.tensor(env.ep_returns if args['use_returns'] else env.ep_rewards))
+            b_values.append(ep_values[:-1])
+            b_values_next.append(ep_values[1:])
+            # y = torch.tensor(returns) + args['gamma'] * ep_values[1:]
+            # adv  = y - ep_values[:-1]
+
+            # targets.append(y)
+            # advs.append(adv)
 
             if global_step % args['update_every'] == 0:
                 # update parameters
                 ## update base agent and vision
                 rewards = torch.tensor(rewards, requires_grad=True).to(args['device'])
-                targets = torch.cat(targets).to(args['device'])
-                advs = torch.cat(advs).to(args['device'])
-                # ys = torch.cat(ys)
+                returns = torch.cat(b_returns).to(args['device'])
+                b_values_next = torch.cat(b_values_next).to(args['device'])
+                b_values = torch.cat(b_values).to(args['device'])
+                if args['standardize']:
+                    returns = (returns - returns.mean()) / returns.std()
+
+                advs = returns + args['gamma'] * b_values_next - b_values
                 actions = torch.tensor(actions)
                 log_probs = torch.tensor(log_probs, requires_grad=True).float().to(args['device'])
-                # values = torch.tensor(values, requires_grad=True).to(args['device'])
 
                 base_loss /= T
                 base_loss.backward()
@@ -370,12 +369,8 @@ def train(args):
 
 
                 ## update detector and vision core with AC
-                # with torch.no_grad():
-                # y = rewards[:-1] + args['gamma'] * values[1:]
-                # adv = rewards[:-1] + args['gamma'] * values[1:] - values[:-1]
-                # adv = ys - values
                 critic_loss = torch.pow(advs, 2).mean()
-                actor_loss = torch.dot(advs, log_probs.float())
+                actor_loss = - (advs.detach() * log_probs.float()).mean()
                 detector_loss = critic_loss + actor_loss
 
                 detector_loss.backward()
