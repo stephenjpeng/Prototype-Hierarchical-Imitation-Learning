@@ -331,7 +331,8 @@ def train(args):
             # TODO: CONSIDER N-STEP RETURNS HERE
             with torch.no_grad():
                 ep_values = torch.tensor(ep_values + [0])
-                returns = env.ep_returns if args['use_returns'] else env.ep_rewards
+                returns = torch.tensor(env.ep_returns if args['use_returns'] else env.ep_rewards)
+                returns = (returns - returns.mean()) / returns.std()
                 y = torch.tensor(returns) + args['gamma'] * ep_values[1:]
                 adv  = y - ep_values[:-1]
 
