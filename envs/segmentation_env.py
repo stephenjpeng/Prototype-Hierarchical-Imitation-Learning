@@ -286,7 +286,8 @@ class SegmentationEnv(gym.Env):
         self.ep_returns = []
         last_r = 0
         for i in reversed(range(len(self.ep_rewards))):
-            self.ep_returns.append(self.ep_rewards[i] + self.gamma * last_r)
+            last_r = self.ep_rewards[i] + self.gamma * last_r
+            self.ep_returns.append(last_r)
         self.ep_returns = self.ep_returns[::-1]
 
     def reset(self):
