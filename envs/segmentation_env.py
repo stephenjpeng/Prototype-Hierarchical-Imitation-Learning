@@ -263,6 +263,7 @@ class SegmentationEnv(gym.Env):
 
     def get_valid_actions(self):
         # forced to choose a regime
+        import pdb; pdb.set_trace()
         if self.t == 0 or (self.t - self.ep_segments[-1]) > self.max_seg_len:
             valid = np.array([0] + ([1] * self.max_regimes))
         else:
