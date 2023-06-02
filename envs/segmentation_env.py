@@ -211,6 +211,7 @@ class SegmentationEnv(gym.Env):
         self.regime_encoding = env_params['regime_encoding']
         self.max_regimes = env_params['max_regimes']
         self.max_seg_len = env_params['max_seg_len']
+        self.min_seg_len = env_params['min_seg_len']
         self.device = env_params['device']
         self.online = online
         self.alpha = env_params['alpha']
@@ -265,8 +266,11 @@ class SegmentationEnv(gym.Env):
         # forced to choose a regime
         if self.t == 0 or (self.t - self.ep_segments[-1]) > self.max_seg_len:
             valid = np.array([0] + ([1] * self.max_regimes))
+        elif (self.t - self.ep_segments[-1]) < self.min_seg_len:
+            valid = np.array([1] + ([0] * self.max_regimes))
         else:
             valid = np.ones(self.max_regimes+1)
+
         if not self.allow_same_regime and self.c < self.max_regimes:
             valid[self.c+1] = 0
         return valid

@@ -73,6 +73,7 @@ def parse_args(args=None):
 
     # detector params
     parser.add_argument('--max_seg_len', type=int, default=1000, help="Max frames in a segment")
+    parser.add_argument('--min_seg_len', type=int, default=0, help="Min frames in a segment")
     parser.add_argument('--n_layers', type=int, default=2, help="# MLP layers in detector")
     parser.add_argument('--hidden_size', type=int, default=128, help="LSTM hidden size detector")
     parser.add_argument('--v_activation', type=str, default='identity')
