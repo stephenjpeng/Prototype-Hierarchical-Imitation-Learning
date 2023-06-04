@@ -108,8 +108,6 @@ def parse_args(args=None):
     except:
         args['mean_image'] = None
 
-    args['dagger'] = args['dagger_sweep'] is not None
-
     return args
 
 
